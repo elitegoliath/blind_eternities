@@ -91,7 +91,7 @@ The Proof ([DEBUG]): That print statement confirms the LLM didn't just guess. It
 The Nuance: Notice the agent correctly identified that State-Based Actions (SBAs) happen before triggers go on the stack. The LLM handled the "Explanation" layer, while Rust provided the "Hard Truth" (the Legend Rule violation).
 
 Phase 2: The "Librarian" (Vector Database)
-Right now, the Rust engine is a brilliant judge, but it has amnesia. It only knows the cards explicitly passed to it in the JSON. To make this a real product, it needs instant access to the 27,000+ cards in the scryfall_oracle.json file we downloaded.
+Right now, the Rust engine is a brilliant judge, but it has amnesia. It only knows the cards explicitly passed to it in the JSON. To make this a real product, it needs instant access to the 27,000+ cards in the scryfall_oracle.json file that will be downloaded in the next milestone.
 
 I need to implement Retrieval Augmented Generation (RAG) using LanceDB.
 
