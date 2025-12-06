@@ -1,0 +1,34 @@
+[package]
+name = "mtg_logic_core"
+version = "0.1.0"
+edition = "2021"
+
+# "cdylib" is REQUIRED for Python to load this as a module (.so/.pyd file)
+# "rlib" allows other Rust binaries (like your ingest script) to use it
+[lib]
+name = "mtg_logic_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# --- The Bridge ---
+# "extension-module" feature is critical for building Python wheels
+pyo3 = { version = "0.27.2", features = ["extension-module"] }
+
+# --- Data Handling ---
+# Serde allows us to pass JSON between Python and Rust effortlessly
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# --- Async Runtime ---
+# Needed for the ingestion script to download data efficiently
+tokio = { version = "1", features = ["full"] }
+
+# --- HTTP Client ---
+# Used to fetch Oracle data from Scryfall
+reqwest = { version = "0.12.24", features = ["json", "stream"] }
+futures-util = "0.3" # For handling streams
+bytes = "1.5"
+
+# --- Vector Database ---
+# (We will enable this later for the RAG lookup)
+# lancedb = "0.4"

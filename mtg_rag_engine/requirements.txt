@@ -1,0 +1,18 @@
+# --- Build System ---
+maturin>=1.4.0
+
+# --- LLM Stack (The Trinity) ---
+langchain>=0.2.0            # <--- The Orchestrator (Agents live here)
+langchain-core>=0.2.0       # <--- The Base Types
+langchain-openai>=0.1.0     # <--- The Model Integration
+langchain-community         # <--- Optional tools
+langgraph>=0.1.0
+
+# --- Infrastructure ---
+openai>=1.0.0
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+
+# --- Dev Tools ---
+pytest>=7.0.0
+ruff>=0.1.0

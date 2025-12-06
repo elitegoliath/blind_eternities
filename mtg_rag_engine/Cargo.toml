@@ -1,0 +1,15 @@
+[workspace]
+# This tells Rust to manage the 'rust_core' directory
+members = ["rust_core"]
+
+# Optimizations for the 'dev' profile (faster builds during testing)
+[profile.dev]
+opt-level = 0
+debug = true
+
+# Optimizations for 'release' (maximum speed for the Python wheel)
+[profile.release]
+opt-level = 3
+lto = true        # Link Time Optimization (smaller binaries)
+codegen-units = 1 # Slower compile, but faster code
+strip = true      # Remove symbols to save space

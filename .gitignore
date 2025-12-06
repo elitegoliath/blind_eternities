@@ -1,0 +1,24 @@
+# --- Build Artifacts ---
+target/
+__pycache__/
+*.so
+*.pyd
+*.whl
+dist/
+.venv/
+
+# --- Data (CRITICAL) ---
+# Do not commit the 175MB+ Scryfall JSON or your vector DB
+data/
+*.json
+*.jsonl
+*.lance/
+
+# --- Environment & Secrets ---
+.env
+.env.local
+
+# --- IDE ---
+.vscode/
+# Keep settings.json if it has shared linting rules, but ignore local history
+.history/
