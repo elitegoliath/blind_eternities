@@ -1,4 +1,4 @@
-// mtg_rag_engine/rust_core/src/models.rs
+// rust_core/src/models.rs
 // Models for Magic: The Gathering game state representation in Rust.
 // This is where Rust shines. We don't use strings for phases or colors; we use Enums.
 // This makes "illegal states" unrepresentable. If you try to create a card with

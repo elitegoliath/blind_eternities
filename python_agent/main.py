@@ -1,5 +1,4 @@
-# mtg_rag_engine/python_agent/main.py
-
+# python_agent/main.py
 # This file is the main entry point for the Python Agent that interacts with the LLM and tools.
 
 import sys

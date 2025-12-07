@@ -97,7 +97,8 @@ I need to implement Retrieval Augmented Generation (RAG) using LanceDB.
 
 ## Phase 2 - The Librarian
 
-
+* Download and parse card data from Scryfall using the "ingest" rust script.
+* Index the card data for optimized use in a vector database using the "index" rust script.
 
 ## Disclaimer
 

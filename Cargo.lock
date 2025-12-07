@@ -4391,6 +4391,8 @@ dependencies = [
 name = "mtg_logic_core"
 version = "0.1.0"
 dependencies = [
+ "arrow-array",
+ "arrow-schema",
  "bytes",
  "fastembed",
  "futures",
@@ -5815,7 +5817,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.4.15",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

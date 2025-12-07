@@ -1,4 +1,4 @@
-// mtg_rag_engine/rust_core/src/lib.rs
+// rust_core/src/lib.rs
 // Rust core library for Magic: The Gathering rules engine.
 // This library exposes a single function to Python via PyO3.
 // The function takes a JSON string representing the game state

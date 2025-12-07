@@ -1,4 +1,4 @@
-// mtg_rag_engine/rust_core/src/rules.rs
+// rust_core/src/rules.rs
 // Rules engine for Magic: The Gathering game state assessment in Rust.
 // This module checks for rule violations and state-based actions (SBAs).
 // This file contains pure functions. They take data in and return a verdict.

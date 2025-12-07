@@ -13,6 +13,8 @@ data/
 *.json
 *.jsonl
 *.lance/
+.fastembed_cache/
+**/.fastembed_cache/
 
 # --- Environment & Secrets ---
 .env

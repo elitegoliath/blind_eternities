@@ -1,5 +1,4 @@
-# mtg_rag_engine/python_agent/tools.py
-
+# python_agent/tools.py
 # This file is the "Translation Layer."
 # It takes a fuzzy request from the LLM and turns it into a
 # strict function call to the compiled Rust binary.
