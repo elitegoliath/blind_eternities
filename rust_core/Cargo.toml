@@ -29,6 +29,7 @@ reqwest = { version = "0.12.24", features = ["json", "stream"] }
 futures-util = "0.3" # For handling streams
 bytes = "1.5"
 
-# --- Vector Database ---
-# (We will enable this later for the RAG lookup)
-# lancedb = "0.4"
+# --- Vector Search Stack ---
+lancedb = "0.22.3"
+fastembed = "5.3.1" # Local BERT embeddings (Fast & Free)
+futures = "0.3"

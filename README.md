@@ -42,7 +42,7 @@ This project uses a hybrid **Python + Rust** architecture. Python handles the se
     Ingest -.->|Periodic Updates| Scryfall(Scryfall API):::user
 ```
 
-## Milestone 1
+## Phase 1 - The Judge
 
 Steps to verify (ensure .env vars are filled out):
 
@@ -94,6 +94,10 @@ Phase 2: The "Librarian" (Vector Database)
 Right now, the Rust engine is a brilliant judge, but it has amnesia. It only knows the cards explicitly passed to it in the JSON. To make this a real product, it needs instant access to the 27,000+ cards in the scryfall_oracle.json file that will be downloaded in the next milestone.
 
 I need to implement Retrieval Augmented Generation (RAG) using LanceDB.
+
+## Phase 2 - The Librarian
+
+
 
 ## Disclaimer
 
