@@ -115,6 +115,24 @@ Steps to verify:
 * Ensure terminal is in project root
 * python ./test_judge_logic.py
 
+## Phase 4 - The Cockpit
+
+* Use Streamlit for a simple dashboard for card searches and Judge interactions.
+
+Steps to verify:
+
+* Ensure terminal is in project root
+* streamlit run app.py
+* A browser window should open. Then, try this scenario:
+  * Librarian:
+    * Type "counter target spell" to test the vector search speed.
+  * Judge:
+    * Set Phase to "Combat".
+    * Uncheck Is Active Player (simulate opponent's turn).
+    * Set Attempt Action to "Cast Spell".
+    * Set Card Types to "Sorcery".
+    * Click Check Legality.
+
 ## Disclaimer
 
 Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
