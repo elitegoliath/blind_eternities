@@ -47,15 +47,15 @@ This project uses a hybrid **Python + Rust** architecture. Python handles the se
 Steps to verify (ensure .env vars are filled out):
 
 * Test the rust backend:
-  * cd mtg_rag_engine/rust_core
+  * cd rust_core
   * cargo test
 
 * Compile the rust_core as a python library:
-  * cd mtg_rag_engine
+  * Ensure terminal is at project root
   * maturin develop
 
 * Smoke test:
-  * cd mtg_rag_engine
+  * Ensure terminal is at project root
   * python -c "import mtg_logic_core; print(f'Bridge Operational: {mtg_logic_core.__name__}')"
 
 * Run interactive python agent (run as a module (-m) to resolve relative imports correctly):
@@ -99,6 +99,11 @@ I need to implement Retrieval Augmented Generation (RAG) using LanceDB.
 
 * Download and parse card data from Scryfall using the "ingest" rust script.
 * Index the card data for optimized use in a vector database using the "index" rust script.
+  
+Steps to verify (ensure .env vars are filled out):
+
+* Ensure terminal is in project root
+* python ./test_core.py
 
 ## Disclaimer
 
