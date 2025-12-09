@@ -100,10 +100,20 @@ I need to implement Retrieval Augmented Generation (RAG) using LanceDB.
 * Download and parse card data from Scryfall using the "ingest" rust script.
 * Index the card data for optimized use in a vector database using the "index" rust script.
   
-Steps to verify (ensure .env vars are filled out):
+Steps to verify:
 
 * Ensure terminal is in project root
 * python ./test_core.py
+
+## Phase 3 - The Concept of Time
+
+* Implementing "Timing" rules. For example:
+  * "Can I cast this Creature right now?" or "Can I play a Land during an opponent's turn?"
+
+Steps to verify:
+
+* Ensure terminal is in project root
+* python ./test_judge_logic.py
 
 ## Disclaimer
 
