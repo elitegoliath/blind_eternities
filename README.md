@@ -133,6 +133,20 @@ Steps to verify:
     * Set Card Types to "Sorcery".
     * Click Check Legality.
 
+My latest test results:
+
+* Librarian: 14 milliseconds
+* Judge: 7 milliseconds
+
+Retrospective: Why this works
+The Singleton (OnceLock): This is the MVP. Without it, we'd be re-initializing the 30MB model on every click, pushing that 14ms to ~500ms.
+
+Zero-Copy (mostly): By passing JSON strings, we incur a tiny serialization cost, but it's negligible compared to the logic speed.
+
+Rust Safety: The "Compiler-Driven Development" done with the GameAction enum ensures a button couldn't be added in Python that crashes the backend.
+
+## Phase 5 - The Mana System
+
 ## Disclaimer
 
 Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
