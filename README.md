@@ -147,6 +147,12 @@ Rust Safety: The "Compiler-Driven Development" done with the GameAction enum ens
 
 ## Phase 5 - The Mana System
 
+Understands mana and mana cost. Added UI elements to support this.
+
+## Phase 6 - Vector Search (meaning) / SQL Filtering (precision) hybrid
+
+This is often called "Pre-filtering" in vector databases. We will tell LanceDB to narrow down the search space using a SQL WHERE clause before (or while) performing the vector similarity search.
+
 ## Disclaimer
 
 Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
