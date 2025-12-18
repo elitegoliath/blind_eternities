@@ -9,35 +9,55 @@ st.title("⚡ Blind Eternities: Rust Core")
 
 # --- SIDEBAR: THE JUDGE ---
 st.sidebar.header("⚖️ The Judge")
-st.sidebar.markdown("Define the current game state to check legality.")
 
-# 1. Build the State
-phase = st.sidebar.selectbox("Current Phase", 
-    ["Untap", "Upkeep", "Draw", "Main Phase 1", "Combat", "Main Phase 2", "End"])
+# 1. Global State
+with st.sidebar.expander("Game State", expanded=True):
+    phase = st.selectbox("Current Phase", 
+        ["Untap", "Upkeep", "Draw", "Main Phase 1", "Combat", "Main Phase 2", "End"])
+    is_my_turn = st.toggle("Is Active Player?", value=True)
+    stack_depth = st.number_input("Items on Stack", min_value=0, value=0)
+    lands_played = st.number_input("Lands Played", min_value=0, value=0)
 
-is_my_turn = st.sidebar.toggle("Is Active Player?", value=True)
-stack_depth = st.sidebar.number_input("Items on Stack", min_value=0, value=0)
-lands_played = st.sidebar.number_input("Lands Played", min_value=0, value=0)
+# 2. Mana Pool (NEW)
+with st.sidebar.expander("Mana Pool", expanded=True):
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        w = st.number_input("White ({W})", 0, 10, 0)
+        u = st.number_input("Blue ({U})", 0, 10, 0)
+    with col2:
+        b = st.number_input("Black ({B})", 0, 10, 0)
+        r = st.number_input("Red ({R})", 0, 10, 0)
+    with col3:
+        g = st.number_input("Green ({G})", 0, 10, 0)
+        c = st.number_input("Colorless ({C})", 0, 10, 0)
 
-# 2. Define the Action
+# 3. Define the Action
+st.sidebar.divider()
 action_type = st.sidebar.radio("Attempt Action:", ["Play Land", "Cast Spell"])
+card_name = st.sidebar.text_input("Card Name", "Counterspell")
 
-card_name = st.sidebar.text_input("Card Name (for Action)", "Mountain")
-card_type_input = st.sidebar.multiselect(
-    "Card Types", 
+if action_type == "Play Land":
+    default_cost = ""
+    default_types = ["Land"]
+else:
+    default_cost = "{U}{U}"
+    default_types = ["Instant"]
+
+card_cost = st.sidebar.text_input("Mana Cost", default_cost, help="Use {W}, {1}, etc.")
+card_types = st.sidebar.multiselect("Card Types", 
     ["Land", "Creature", "Artifact", "Instant", "Sorcery", "Enchantment"],
-    default=["Land"] if action_type == "Play Land" else ["Creature"]
+    default=default_types
 )
 
-# 3. Construct Payload & Call Rust
-if st.sidebar.button("Check Legality"):
+# 4. Construct Payload & Call Rust
+if st.sidebar.button("Check Legality", type="primary"):
     # Map UI to Rust Enums
     action_payload = {
         "type": "PlayLand" if action_type == "Play Land" else "CastSpell",
         "payload": {
             "name": card_name,
-            "type_line": card_type_input,
-            "mana_cost": None # Simplified for now
+            "type_line": card_types,
+            "mana_cost": card_cost 
         }
     }
     
@@ -46,8 +66,12 @@ if st.sidebar.button("Check Legality"):
         "is_active_player": is_my_turn,
         "phase": phase,
         "battlefield": [],
-        "stack": ["Spell"] * stack_depth, # Dummy stack items
+        "stack": ["Spell"] * stack_depth,
         "lands_played": lands_played,
+        "mana_pool": {
+            "white": w, "blue": u, "black": b, 
+            "red": r, "green": g, "colorless": c
+        },
         "pending_action": action_payload
     }
 
@@ -68,15 +92,12 @@ if st.sidebar.button("Check Legality"):
 # --- MAIN AREA: THE LIBRARIAN ---
 st.header("📚 The Librarian")
 st.markdown("Semantic search powered by `fastembed` + `lancedb` in Rust.")
-
 query = st.text_input("Describe a card (e.g., 'destroy all creatures'):")
 
 if query:
-    # CALL RUST
     start_t = time.perf_counter()
-    results_json = mtg_logic_core.search_cards(query, 5) # Limit 5
+    results_json = mtg_logic_core.search_cards(query, 5)
     duration = (time.perf_counter() - start_t) * 1000
-    
     results = json.loads(results_json)
     
     st.caption(f"Search completed in **{duration:.2f}ms**")

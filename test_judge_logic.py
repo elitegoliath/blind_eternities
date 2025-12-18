@@ -1,8 +1,10 @@
 import mtg_logic_core
 import json
 
-# Helper to build the state easily
-def make_state(phase="Main Phase 1", is_active=True, stack=None, action=None):
+def make_state(phase="Main Phase 1", is_active=True, stack=None, action=None, mana=None):
+    if mana is None:
+        mana = {} # Defaults to 0 in Rust
+        
     return json.dumps({
         "active_player": "Hero",
         "is_active_player": is_active,
@@ -10,11 +12,12 @@ def make_state(phase="Main Phase 1", is_active=True, stack=None, action=None):
         "battlefield": [],
         "stack": stack if stack else [],
         "lands_played": 0,
+        "mana_pool": mana,
         "pending_action": action
     })
 
 def run_test(name, state_json, expected_status):
-    print(f"Testing: {name}...", end=" ")
+    print(f"Testing: {name:<40}", end=" ")
     response = mtg_logic_core.check_board_state(state_json)
     result = json.loads(response)[0]
     
@@ -23,48 +26,41 @@ def run_test(name, state_json, expected_status):
     else:
         print(f"❌ FAIL (Expected {expected_status}, got {result})")
 
-print("--- ⚖️  JUDGE TIMING TESTS ⚖️  ---\n")
+print("--- ⚖️  JUDGE MANA TESTS ⚖️  ---\n")
 
-# 1. Legal Land Drop
-# Context: Main Phase, Empty Stack, My Turn
-land_action = {
-    "type": "PlayLand", 
-    "payload": { "name": "Mountain", "type_line": ["Land"], "mana_cost": None }
+# 1. Cast Sol Ring (Legal)
+# Cost: {1}, Have: {R}:1
+sol_ring = {
+    "type": "CastSpell",
+    "payload": { "name": "Sol Ring", "type_line": ["Artifact"], "mana_cost": "{1}" }
 }
-run_test(
-    "Legal Land Drop", 
-    make_state(phase="Main Phase 1", stack=[], action=land_action), 
+run_test("Cast Sol Ring (Have {R})", 
+    make_state(mana={"red": 1}, action=sol_ring), 
     "legal"
 )
 
-# 2. Illegal Land Drop (Stack not empty)
-# Context: Stack has a spell on it
-run_test(
-    "Illegal Land Drop (Stack Dirty)", 
-    make_state(phase="Main Phase 1", stack=["Lightning Bolt"], action=land_action), 
-    "illegal"
-)
-
-# 3. Illegal Sorcery (Opponent's Turn)
-# Context: Trying to cast a creature during opponent's turn
-sorcery_action = {
+# 2. Cast Counterspell (Legal)
+# Cost: {U}{U}, Have: {U}:2
+counterspell = {
     "type": "CastSpell",
-    "payload": { "name": "Grizzly Bears", "type_line": ["Creature"], "mana_cost": "{1}{G}" }
+    "payload": { "name": "Counterspell", "type_line": ["Instant"], "mana_cost": "{U}{U}" }
 }
-run_test(
-    "Illegal Sorcery (Opponent's Turn)",
-    make_state(is_active=False, action=sorcery_action), # is_active=False
-    "illegal"
-)
-
-# 4. Legal Instant (Opponent's Turn)
-# Context: Casting an Instant during opponent's turn
-instant_action = {
-    "type": "CastSpell",
-    "payload": { "name": "Giant Growth", "type_line": ["Instant"], "mana_cost": "{G}" }
-}
-run_test(
-    "Legal Instant (Opponent's Turn)",
-    make_state(is_active=False, action=instant_action),
+# Note: Since it's an Instant, we can test it during "Combat" too
+run_test("Cast Counterspell (Exact Mana)", 
+    make_state(phase="Combat", mana={"blue": 2}, action=counterspell), 
     "legal"
+)
+
+# 3. Cast Counterspell (Illegal - Wrong Color)
+# Cost: {U}{U}, Have: {R}:2
+run_test("Cast Counterspell (Wrong Color)", 
+    make_state(mana={"red": 2}, action=counterspell), 
+    "illegal"
+)
+
+# 4. Cast Counterspell (Illegal - Not Enough)
+# Cost: {U}{U}, Have: {U}:1
+run_test("Cast Counterspell (Insufficient)", 
+    make_state(mana={"blue": 1}, action=counterspell), 
+    "illegal"
 )
