@@ -49,7 +49,8 @@ pub enum Phase {
 pub struct Card {
     pub name: String,
     pub type_line: Vec<CardType>,
-    pub mana_cost: Option<String>,
+    #[serde(default)] 
+    pub mana_cost: String,
 }
 
 // 2. The "Permanent" (On Battlefield)
@@ -77,17 +78,35 @@ pub struct Permanent {
 pub struct GameState {
     pub active_player: String, // "Player" or "Opponent"
     pub is_active_player: bool, // Helper bool: Is it actually MY turn?
-    
-    pub phase: Phase,          // STRICT ENUM now
-    
+    pub phase: Phase,
     pub battlefield: Vec<Permanent>,
     pub stack: Vec<String>,    // We can check .len() on this
-    
     #[serde(default)] 
     pub lands_played: u8,      // Crucial for Land Logic
     
-    // The "Request": What is the user trying to do?
-    pub pending_action: Option<GameAction>, 
+    #[serde(default)] 
+    pub mana_pool: ManaPool,   // The floating mana available to pay costs
+    pub pending_action: Option<GameAction>, // The "Request": What is the user trying to do?
+}
+
+// --- MANA SYSTEM ---
+
+#[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
+pub struct ManaPool {
+    #[serde(default)] pub white: u32,
+    #[serde(default)] pub blue: u32,
+    #[serde(default)] pub black: u32,
+    #[serde(default)] pub red: u32,
+    #[serde(default)] pub green: u32,
+    #[serde(default)] pub colorless: u32, // e.g., from Sol Ring
+    // Note: We don't track "Generic" in the pool; generic costs are paid by any of the above.
+}
+
+impl ManaPool {
+    /// Calculate total total mana value (CMC) available
+    pub fn total_available(&self) -> u32 {
+        self.white + self.blue + self.black + self.red + self.green + self.colorless
+    }
 }
 
 // --- ACTIONS ---
