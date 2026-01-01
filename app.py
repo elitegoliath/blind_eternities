@@ -90,17 +90,33 @@ if st.sidebar.button("Check Legality", type="primary"):
 
 
 # --- MAIN AREA: THE LIBRARIAN ---
-st.header("📚 The Librarian")
-st.markdown("Semantic search powered by `fastembed` + `lancedb` in Rust.")
-query = st.text_input("Describe a card (e.g., 'destroy all creatures'):")
+st.header("📚 The Librarian (Hybrid Search)")
+st.markdown("Semantic search + **SQL Filtering**.")
+
+col1, col2 = st.columns([3, 1])
+
+with col1:
+    query = st.text_input("Describe a card:", placeholder="e.g. 'destroy all creatures'")
+with col2:
+    # SQL Filter UI
+    filter_type = st.selectbox("Filter by Type", ["Any", "Creature", "Instant", "Sorcery", "Enchantment", "Artifact", "Land"])
 
 if query:
     start_t = time.perf_counter()
-    results_json = mtg_logic_core.search_cards(query, 5)
+    
+    # Construct SQL Where Clause
+    where_sql = None
+    if filter_type != "Any":
+        # LanceDB uses standard SQL syntax
+        where_sql = f"type_line LIKE '%{filter_type}%'"
+
+    # CALL RUST with the filter
+    results_json = mtg_logic_core.search_cards(query, 5, where_sql)
+    
     duration = (time.perf_counter() - start_t) * 1000
     results = json.loads(results_json)
     
-    st.caption(f"Search completed in **{duration:.2f}ms**")
+    st.caption(f"Search completed in **{duration:.2f}ms** (Filter: `{where_sql}`)")
 
     if "status" in results and results["status"] == "error":
         st.error(results["message"])

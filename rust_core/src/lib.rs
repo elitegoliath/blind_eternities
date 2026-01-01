@@ -88,7 +88,7 @@ fn check_board_state(json_payload: String) -> PyResult<String> {
 
 // --- THE LIBRARIAN (Vector Search) ---
 #[pyfunction]
-fn search_cards(query: String, limit: Option<usize>) -> PyResult<String> {
+fn search_cards(query: String, limit: Option<usize>, where_clause: Option<String>) -> PyResult<String> {
     let limit = limit.unwrap_or(5);
 
     // 1. Generate Embedding
@@ -111,10 +111,16 @@ fn search_cards(query: String, limit: Option<usize>) -> PyResult<String> {
         let table = db.open_table("cards").execute().await
             .map_err(|e| format!("Table Open Failed: {}", e))?;
 
-        // Query
-        let query_builder = table.query()
+        // Initialize Query Builder
+        let mut query_builder = table.query()
             .nearest_to(query_vector)
             .map_err(|e| format!("Invalid Query Vector: {}", e))?;
+
+        // Apply Hybrid Filter
+        if let Some(sql) = where_clause {
+            // "filter" accepts standard SQL strings like "type_line LIKE '%Creature%'"
+            query_builder = query_builder.only_if(sql);
+        }
 
         let results = query_builder
             .limit(limit)

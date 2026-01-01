@@ -153,6 +153,22 @@ Understands mana and mana cost. Added UI elements to support this.
 
 This is often called "Pre-filtering" in vector databases. We will tell LanceDB to narrow down the search space using a SQL WHERE clause before (or while) performing the vector similarity search.
 
+Steps to verify:
+
+* Ensure terminal is in project root
+* streamlit run app.py
+* A browser window should open. Then, try this scenario:
+  * Query: "Remove a creature from the game"
+  * Filter: "Instant"
+
+Without the filter, the AI often returns Planeswalkers or Sorceries (like "Exile target creature"). With the filter, you are forcing the Rust backend to:
+
+1. Read the LanceDB Index.
+2. Hard-discard anything that isn't an "Instant".
+3. Then find the most semantically similar cards among the survivors.
+
+This is how modern RAG (Retrieval-Augmented Generation) systems are built—it's not just vector math; it's vector math constrained by business logic.
+
 ## Disclaimer
 
 Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
