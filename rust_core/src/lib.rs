@@ -22,8 +22,8 @@ use tokio::runtime::Runtime; // Import Runtime
 mod models;
 mod rules;
 
-use models::GameState;
-use rules::{Judge, Ruling};
+use models::{GameState, Ruling};
+use rules::Judge;
 
 // --- SINGLETONS ---
 
@@ -159,9 +159,38 @@ fn search_cards(query: String, limit: Option<usize>, where_clause: Option<String
     }
 }
 
+#[pyfunction]
+fn apply_action(json_payload: String) -> PyResult<String> {
+    // 1. Parse State
+    let mut state: GameState = match serde_json::from_str(&json_payload) {
+        Ok(s) => s,
+        Err(e) => return Ok(json!({ "status": "error", "message": format!("JSON Error: {}", e) }).to_string()),
+    };
+
+    // 2. Apply Action (Mutates State)
+    match Judge::apply_action(&mut state) {
+        Ok(_) => {
+            // 3. Serialize New State
+            // We return the entire modified state wrapper
+            Ok(json!({ 
+                "status": "success", 
+                "new_state": state 
+            }).to_string())
+        },
+        Err(reason) => {
+            // Action Failed (Illegal)
+            Ok(json!({ 
+                "status": "illegal", 
+                "reason": reason 
+            }).to_string())
+        }
+    }
+}
+
 #[pymodule]
 fn mtg_logic_core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_board_state, m)?)?;
     m.add_function(wrap_pyfunction!(search_cards, m)?)?;
+    m.add_function(wrap_pyfunction!(apply_action, m)?)?; // <--- Register New Function
     Ok(())
 }

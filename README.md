@@ -169,6 +169,10 @@ Without the filter, the AI often returns Planeswalkers or Sorceries (like "Exile
 
 This is how modern RAG (Retrieval-Augmented Generation) systems are built—it's not just vector math; it's vector math constrained by business logic.
 
+## Phase 7 - State Transitions
+
+Convert generic GameState into a mutable system that includes subtracting mana, moving cards, and clearing the pending action.
+
 ## Disclaimer
 
 Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.

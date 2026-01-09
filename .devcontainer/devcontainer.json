@@ -1,0 +1,57 @@
+{
+  "name": "Blind Eternities (Rust + Python)",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "features": {
+    // 1. Install the Rust toolchain (Cargo, rustc)
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "latest",
+      "profile": "minimal"
+    },
+    // 2. Install ZSH and standard dev utilities
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "upgradePackages": true
+    },
+    "ghcr.io/devcontainers-extra/features/go-task:1": {
+        "version": "latest"
+    }
+  },
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.defaultInterpreterPath": ".venv/bin/python",
+        "chat.disableAIFeatures": true,
+        "github.copilot.enable": {
+            "*": false
+        }
+      },
+      "extensions": [
+        "rust-lang.rust-analyzer",  // Official Rust Language Server
+        "vadimcn.vscode-lldb",      // Native debugger (Critical for Rust)
+        "tamasfe.even-better-toml", // Best TOML support
+        "fill-labs.dependi",        // REPLACES 'crates': Manages Cargo dependencies
+        "ms-python.python",         // Python language support
+        "ms-python.vscode-pylance", // Type checking
+        "charliermarsh.ruff",       // High-performance Python linter
+        "xyz.local-history",        // Local history for files
+        "saoudrizwan.claude-dev",
+
+        // --- Markdown Tools ---
+        "DavidAnson.vscode-markdownlint",  // The Style Enforcer
+        "yzhang.markdown-all-in-one",      // The Productivity Suite
+        "bierner.markdown-mermaid",        // Better Mermaid Preview Support
+
+        // --- GoTask ---
+        "redhat.vscode-yaml",
+        "task.vscode-task"
+      ]
+    }
+  },
+  // 3. Auto-install dependencies when the container builds
+  // This command runs in the root of the project workspace
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y protobuf-compiler patchelf && python3 -m venv .venv && ./.venv/bin/pip install --upgrade -r requirements.txt",
+  
+  // 4. Set the user to 'vscode' (standard for devcontainers) to avoid permission issues
+  "remoteUser": "vscode"
+}

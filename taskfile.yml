@@ -1,0 +1,11 @@
+version: '3'
+
+tasks:
+  app-run:
+    cmds:
+      - streamlit run app.py
+
+  compile-backend:
+    dir: ./rust_core
+    cmds:
+      - maturin develop

@@ -10,8 +10,8 @@ dist/
 # --- Data (CRITICAL) ---
 # Do not commit the 175MB+ Scryfall JSON or your vector DB
 data/
-*.json
-*.jsonl
+rust_core/*.jsonl
+rust_core/*.json
 *.lance/
 .fastembed_cache/
 **/.fastembed_cache/
