@@ -173,6 +173,24 @@ This is how modern RAG (Retrieval-Augmented Generation) systems are built—it's
 
 Convert generic GameState into a mutable system that includes subtracting mana, moving cards, and clearing the pending action.
 
+Perform this sequence in the app to prove the "Game Loop" is alive:
+
+Setup Resources:
+
+* Use the new arrow buttons to add 2 Blue ({U}) and 2 Colorless ({C}) mana.
+* Check: The number next to the arrows should show 2.
+* Attempt Action:
+  * Action: "Cast Spell"
+  * Name: "Hedron Archive"
+  * Cost: {4}
+  * Click APPLY ACTION.
+* Verify Result:
+  * Status: You should see "✅ Resolved!".
+  * Battlefield/Stack: "Hedron Archive" should appear in the Stack column.
+  * Mana: The Blue and Colorless mana counters should auto-decrement to 0 (because the engine greedly consumed them to pay the {4} generic cost).
+
+If that works, it proves that the app compiled, and is a memory-safe, hybrid AI/Rules engine for Magic: The Gathering.
+
 ## Disclaimer
 
 Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
