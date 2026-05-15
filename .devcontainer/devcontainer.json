@@ -12,19 +12,52 @@
       "installZsh": true,
       "upgradePackages": true
     },
+    // 3. Install Go-Task
     "ghcr.io/devcontainers-extra/features/go-task:1": {
         "version": "latest"
     }
   },
+  // 4. GPU & Hardware Passthrough (Critical for AMD/ROCm & PyTorch)
+  "runArgs": [
+    "--device=/dev/kfd",
+    "--device=/dev/dri",
+    "--group-add", "video",
+    "--group-add", "render",
+    "--shm-size=8g"
+  ],
   "customizations": {
     "vscode": {
       "settings": {
-        "python.terminal.activateEnvInCurrentTerminal": true,
-        "python.defaultInterpreterPath": ".venv/bin/python",
+        // Disable the built-in AI Chat and Speech features
         "chat.disableAIFeatures": true,
+        "accessibility.voice.keywordActivation": "off",
+
+        // Explicitly kill Copilot across all languages
         "github.copilot.enable": {
-            "*": false
-        }
+            "*": false,
+            "plaintext": false,
+            "markdown": false,
+            "scminput": false
+        },
+        "github.copilot.editor.enableAutoCompletions": false,
+        "github.copilot.editor.enableCodeActions": false,
+
+        // Disable the "ghost text" inline suggestions
+        "editor.inlineSuggest.enabled": false,
+
+        // Disable the suggestion to use Copilot when using the integrated terminal
+        "terminal.integrated.initialHint": false,
+
+        // Ensure standard Intellisense still works (manual triggers)
+        "editor.suggestOnTriggerCharacters": true,
+        "editor.quickSuggestions": {
+          "other": "on",
+          "comments": "off",
+          "strings": "off"
+        },
+
+        "python.terminal.activateEnvInCurrentTerminal": true,
+        "python.defaultInterpreterPath": ".venv/bin/python"
       },
       "extensions": [
         "rust-lang.rust-analyzer",  // Official Rust Language Server
@@ -34,8 +67,6 @@
         "ms-python.python",         // Python language support
         "ms-python.vscode-pylance", // Type checking
         "charliermarsh.ruff",       // High-performance Python linter
-        "xyz.local-history",        // Local history for files
-        "saoudrizwan.claude-dev",
 
         // --- Markdown Tools ---
         "DavidAnson.vscode-markdownlint",  // The Style Enforcer
@@ -48,10 +79,9 @@
       ]
     }
   },
-  // 3. Auto-install dependencies when the container builds
-  // This command runs in the root of the project workspace
-  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y protobuf-compiler patchelf && python3 -m venv .venv && ./.venv/bin/pip install --upgrade -r requirements.txt",
+  // 5. Hardened System Dependencies & Venv Bootstrap
+  "postCreateCommand": "sudo apt-get update && sudo apt-get install -y protobuf-compiler patchelf build-essential pkg-config libssl-dev && python3 -m venv .venv && ./.venv/bin/pip install --upgrade pip && ./.venv/bin/pip install -r requirements.txt",
   
-  // 4. Set the user to 'vscode' (standard for devcontainers) to avoid permission issues
+  // 6. Set the user to 'vscode' (standard for devcontainers) to avoid permission issues
   "remoteUser": "vscode"
 }
