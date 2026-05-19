@@ -17,12 +17,7 @@
         "version": "latest"
     }
   },
-  // 4. GPU & Hardware Passthrough (Critical for AMD/ROCm & PyTorch)
   "runArgs": [
-    "--device=/dev/kfd",
-    "--device=/dev/dri",
-    "--group-add", "video",
-    "--group-add", "render",
     "--shm-size=8g"
   ],
   "customizations": {
@@ -79,9 +74,9 @@
       ]
     }
   },
-  // 5. Hardened System Dependencies & Venv Bootstrap
+  // 4. Hardened System Dependencies & Venv Bootstrap
   "postCreateCommand": "sudo apt-get update && sudo apt-get install -y protobuf-compiler patchelf build-essential pkg-config libssl-dev && python3 -m venv .venv && ./.venv/bin/pip install --upgrade pip && ./.venv/bin/pip install -r requirements.txt",
   
-  // 6. Set the user to 'vscode' (standard for devcontainers) to avoid permission issues
+  // 5. Set the user to 'vscode' (standard for devcontainers) to avoid permission issues
   "remoteUser": "vscode"
 }
