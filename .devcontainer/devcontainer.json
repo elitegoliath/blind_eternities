@@ -18,7 +18,8 @@
     }
   },
   "runArgs": [
-    "--shm-size=8g"
+    "--shm-size=8g",
+    "--add-host=host.docker.internal:host-gateway"
   ],
   "customizations": {
     "vscode": {

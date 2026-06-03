@@ -30,18 +30,26 @@ If the user provides a JSON payload or card name, pass it to your verification t
 """
 
 @lru_cache(maxsize=1)
-def get_llm(model_name: str = "gpt-5-nano", temperature: float = 0.0) -> ChatOpenAI:
+def get_llm(model_name: str = "local-model", temperature: float = 0.0) -> ChatOpenAI:
     """
     Returns a configured LLM instance. 
     Cached to prevent re-initialization overhead during high-throughput testing.
     """
-    
-    # Fail fast if keys are missing
-    if not os.getenv("OPENAI_API_KEY"):
-        raise ValueError("OPENAI_API_KEY not found in environment variables.")
+
+    # Local runners usually ignore the API key, but LangChain/OpenAI SDK 
+    # still require the variable to be populated with a string.
+    api_key = os.getenv("OPENAI_API_KEY", "not-needed-for-local")
+
+    # Set this to the port your host runner (Ollama, LM Studio, vLLM) is using.
+    # E.g., 11434 for Ollama, 1234 for LM Studio.
+    local_base_url = "http://host.docker.internal:11434/v1"
+
+    print(f"[DEBUG] 🧠 Connecting to local LLM at {local_base_url}")
 
     return ChatOpenAI(
         model=model_name,
+        base_url=local_base_url,
+        api_key=api_key,
         temperature=temperature, # Keep at 0 for deterministic rule evaluation
         streaming=True,          # Better UX for long explanations
     )
