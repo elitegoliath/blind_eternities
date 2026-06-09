@@ -42,7 +42,7 @@ def get_llm(model_name: str = "local-model", temperature: float = 0.0) -> ChatOp
 
     # Set this to the port your host runner (Ollama, LM Studio, vLLM) is using.
     # E.g., 11434 for Ollama, 1234 for LM Studio.
-    local_base_url = "http://host.docker.internal:11434/v1"
+    local_base_url = os.getenv("LLM_BASE_URL", "http://llm-engine:11434/v1")
 
     print(f"[DEBUG] 🧠 Connecting to local LLM at {local_base_url}")
 

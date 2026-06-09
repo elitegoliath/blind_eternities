@@ -71,7 +71,10 @@
 
         // --- GoTask ---
         "redhat.vscode-yaml",
-        "task.vscode-task"
+        "task.vscode-task",
+
+        // --- Docker Container Tools ---
+        "ms-azuretools.vscode-containers"
       ]
     }
   },
