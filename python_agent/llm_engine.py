@@ -30,11 +30,13 @@ If the user provides a JSON payload or card name, pass it to your verification t
 """
 
 @lru_cache(maxsize=1)
-def get_llm(model_name: str = "local-model", temperature: float = 0.0) -> ChatOpenAI:
+def get_llm(temperature: float = 0.0) -> ChatOpenAI:
     """
     Returns a configured LLM instance. 
     Cached to prevent re-initialization overhead during high-throughput testing.
     """
+
+    model_name = os.getenv("LLM_MODEL_NAME", "llama3.1")
 
     # Local runners usually ignore the API key, but LangChain/OpenAI SDK 
     # still require the variable to be populated with a string.

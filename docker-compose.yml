@@ -27,8 +27,16 @@ services:
     environment:
       - OPENAI_API_KEY=not-needed-for-local
       - LLM_BASE_URL=http://llm-engine:11434/v1
+      # Tell LangChain exactly which Ollama model to request
+      - LLM_MODEL_NAME=llama3.1
+    volumes:
+      # Maps the local ./data folder to the container's /app/data folder
+      - ./data:/app/data
     depends_on:
       - llm-engine
+    # Keeps the container running so we can interact with the terminal
+    stdin_open: true
+    tty: true
 
 volumes:
   ollama_data:
