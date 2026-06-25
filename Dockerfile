@@ -1,4 +1,4 @@
-FROM python:3.11 AS builder
+FROM python:3.11
 
 # Install system dependencies required for compiling Rust and Python extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     git \
     libgomp1 \
+    protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust toolchain
