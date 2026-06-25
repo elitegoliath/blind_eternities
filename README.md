@@ -191,6 +191,48 @@ Setup Resources:
 
 If that works, it proves that the app compiled, and is a memory-safe, hybrid AI/Rules engine for Magic: The Gathering.
 
+## Phase 8 - Ollama Integration and Containerization
+
+### Phase Test Steps
+
+Build and boot the stack in the background
+`docker compose up --build -d`
+
+Pull the model weights inside the Ollama container (only needed the first time)
+`docker exec -it blind-eternities-llm ollama pull llama3.1`
+
+Attach directly to the interactive Python terminal loop
+`docker attach blind-eternities-app`
+
+Once attached, hit Enter once to ensure your terminal syncs with the container output. You should see the prompt:
+`>>> Agent Ready. Ask a question (or 'q' to quit).`
+
+To ensure that the Python state graph, the Ollama tool-calling capabilities, and the compilation layers are working seamlessly, you can test with two distinct types of queries:
+
+### Test 1: Direct LLM Reasoning (Verifies Ollama & LangChain Connectivity)
+
+`User: Explain how the priority system works in Magic: The Gathering when a player casts a spell.`
+
+**Expected Output:** The stream should immediately hit the agent node, skip the tool node (since this is a pure rules explanation query), and print out a clean text breakdown directly from Llama 3.1.
+
+### Test 2: Tool Execution (Verifies PyO3 Rust Wheel Binding)
+
+`User: Can you check if this move is legal? I am trying to cast a spell during my opponent's untap step.`
+
+### Leaving the Container Safely
+
+When you are done testing, do not use `Ctrl + C`, as that can kill the main Python process inside the container. Instead, use the standard Docker escape sequence to detach cleanly while leaving the container running in the background: Press `Ctrl + P`, then immediately press `Ctrl + Q`.
+
+For complete environment teardown: `docker compose down`.
+
+**Expected Output:**
+
+1. The agent node should trigger, recognize that it needs to evaluate a game action, and output: 🤖 Agent: I need to use tool 'validate_move'. along with the parsed arguments.
+2. The tools node will execute, invoking your compiled Rust core library, and output the result: 🛠️ Tool 'validate_move' Output: ...
+3. The loop will pass back to the agent node to synthesize that raw tool feedback into a clean, human-readable confirmation.
+
+
+
 ## Disclaimer
 
 Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
