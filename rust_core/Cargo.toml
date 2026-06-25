@@ -12,7 +12,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # --- The Bridge ---
 # "extension-module" feature is critical for building Python wheels
-pyo3 = { version = "0.27.2", features = ["extension-module"] }
+pyo3 = { version = "0.29.0", features = ["extension-module"] }
 
 # --- Data Handling ---
 # Serde allows us to pass JSON between Python and Rust effortlessly
@@ -25,13 +25,13 @@ tokio = { version = "1", features = ["full"] }
 
 # --- HTTP Client ---
 # Used to fetch Oracle data from Scryfall
-reqwest = { version = "0.12.24", features = ["json", "stream"] }
+reqwest = { version = "0.13.4", features = ["json", "stream"] }
 futures-util = "0.3" # For handling streams
 bytes = "1.5"
 
 # --- Vector Search Stack ---
-lancedb = "0.22.3"
+lancedb = "0.30.0"
 fastembed = "5.3.1" # Local BERT embeddings (Fast & Free)
 futures = "0.3"
-arrow-array = "56.2.0"
-arrow-schema = "56.2.0"
+arrow-array = "59.0.0"
+arrow-schema = "59.0.0"
