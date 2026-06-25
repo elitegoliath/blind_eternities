@@ -198,9 +198,6 @@ If that works, it proves that the app compiled, and is a memory-safe, hybrid AI/
 Build and boot the stack in the background
 `docker compose up --build -d`
 
-Pull the model weights inside the Ollama container (only needed the first time)
-`docker exec -it blind-eternities-llm ollama pull llama3.1`
-
 Attach directly to the interactive Python terminal loop
 `docker attach blind-eternities-app`
 
