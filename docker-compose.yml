@@ -1,26 +1,15 @@
-version: '3.8'
-
 services:
   llm-engine:
     image: ollama/ollama:latest
     container_name: blind-eternities-llm
+    environment:
+      - LANCEDB_URI=/app/data/lancedb
     ports:
       - "11434:11434"
     volumes:
       # This mount is CRITICAL. It ensures downloaded models persist
       # between container restarts.
       - ollama_data:/root/.ollama
-    # AUTOMATION STEP:
-    # This boots the ollama server in the background, waits for it to respond,
-    # pulls the model if it doesn't exist, and then brings the server to the foreground.
-    entrypoint: [ "/bin/sh", "-c" ]
-    command:
-      - |
-        ollama serve &
-        until curl -s http://localhost:11434/api/tags > /dev/null; do sleep 1; done
-        echo ">>> Checking for model llama3.1..."
-        ollama pull llama3.1
-        wait
     deploy:
       resources:
         reservations:

@@ -1,12 +1,13 @@
 // LanceDB Vector Indexer for MTG Cards using FastEmbed v5.x
 // Updated for LanceDB 0.22+ API changes
 
-use arrow_array::{FixedSizeListArray, Float32Array, RecordBatch, RecordBatchIterator, StringArray};
+use arrow_array::{FixedSizeListArray, RecordBatch, StringArray};
 use arrow_schema::{DataType, Field, Schema};
 use arrow_array::types::Float32Type;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use lancedb::connect;
 use serde::Deserialize;
+use std::env;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::Arc;
@@ -31,8 +32,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Connect to LanceDB
     // 0.22+ uses 'execute()' pattern for connections
-    let uri = "data/lancedb";
-    let db = connect(uri).execute().await?;
+    let uri = env::var("LANCEDB_URI").unwrap_or_else(|_| "/app/data/lancedb".to_string());
+    let db = connect(&uri).execute().await?;
     
     // 3. Read Data
     println!(">>> Reading processed_cards.jsonl...");
@@ -70,7 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             
             // Limit for testing (remove this line for full import)
-            if count >= 1000 { break; } 
+            // if count >= 1000 { break; }
         }
     }
 
@@ -110,15 +111,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     // 5. Write to DB
-    // LanceDB 0.22 expects an Iterator of batches, not a single batch
-    let batches = RecordBatchIterator::new(vec![Ok(batch)], schema.clone());
-
     println!(">>> Writing to LanceDB...");
-    
-    // 'create_table' now returns a builder, we call execute()
-    db.create_table("cards", batches)
+
+    // In LanceDB 0.30+, create_table directly accepts a Vec<RecordBatch>!
+    db.create_table("cards", vec![batch])
         .execute()
-        .await?;
+        .await
+        .map_err(|e| format!("Failed to create table: {}", e))?;
 
     println!(">>> Indexing Complete. Table 'cards' created at ./data/lancedb");
     Ok(())

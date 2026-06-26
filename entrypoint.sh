@@ -5,11 +5,11 @@
 set -e
 
 # Define paths
-DATA_DIR="/app/data/lancedb"
+DATA_DIR="${LANCEDB_URI:-/app/data/lancedb}"
 RAW_FILE="/app/scryfall_raw.json"
 JSONL_FILE="/app/processed_cards.jsonl"
 
-echo ">>> Checking vector database status..."
+echo ">>> Checking vector database status at $DATA_DIR..."
 
 # Check if LanceDB directory exists and is NOT empty
 if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR")" ]; then
@@ -18,11 +18,11 @@ if [ ! -d "$DATA_DIR" ] || [ -z "$(ls -A "$DATA_DIR")" ]; then
     # 1. Run Scryfall Ingestion (Downloads and filters data)
     echo ">>> Executing ingest binary..."
     cd /app/rust_core
-    cargo run --release -bin ingest
+    cargo run --release --bin ingest
 
     # 2. Run Vector Indexing (Embeds and builds LanceDB)
     echo ">>> Executing index binary..."
-    cargo run --release -bin index
+    cargo run --release --bin index
     cd /app
 
     # Optional: Clean up intermediate files to save space

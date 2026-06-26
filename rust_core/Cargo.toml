@@ -33,5 +33,5 @@ bytes = "1.5"
 lancedb = "0.30.0"
 fastembed = "5.3.1" # Local BERT embeddings (Fast & Free)
 futures = "0.3"
-arrow-array = "59.0.0"
-arrow-schema = "59.0.0"
+arrow-array = "58.0.0"
+arrow-schema = "58.0.0"

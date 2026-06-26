@@ -137,7 +137,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let file = File::open("scryfall_raw.json")?;
     let reader = std::io::BufReader::new(file);
-    let mut output_file = File::create("processed_cards.jsonl")?;
+    let output_file = File::create("processed_cards.jsonl")?;
     let mut writer = BufWriter::new(output_file);
     
     let mut valid_cards = 0;

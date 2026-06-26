@@ -8,16 +8,19 @@
 // to a string, and returns it.
 
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use serde_json::json;
+use std::env;
 use std::sync::{OnceLock, Mutex};
 
 // Imports for the Librarian (Search)
 use arrow_array::{RecordBatch, StringArray};
+use arrow_array::cast::AsArray;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use lancedb::connect;
-use lancedb::query::{ExecutableQuery, QueryBase}; // Import the trait for .limit()
+use lancedb::query::{ExecutableQuery, QueryBase};
 use futures::TryStreamExt;
-use tokio::runtime::Runtime; // Import Runtime
+use tokio::runtime::Runtime;
 
 mod models;
 mod rules;
@@ -58,9 +61,7 @@ fn get_string_column<'a>(batch: &'a RecordBatch, col_name: &str) -> Result<&'a S
     let col = batch.column_by_name(col_name)
         .ok_or_else(|| format!("Column '{}' not found in LanceDB results", col_name))?;
 
-    col.as_any()
-        .downcast_ref::<StringArray>()
-        .ok_or_else(|| format!("Column '{}' is not a StringArray (Type Mismatch)", col_name))
+    Ok(col.as_string::<i32>())
 }
 
 
@@ -88,6 +89,7 @@ fn check_board_state(json_payload: String) -> PyResult<String> {
 
 // --- THE LIBRARIAN (Vector Search) ---
 #[pyfunction]
+#[pyo3(signature = (query, limit=None, where_clause=None))]
 fn search_cards(query: String, limit: Option<usize>, where_clause: Option<String>) -> PyResult<String> {
     let limit = limit.unwrap_or(5);
 
@@ -100,12 +102,12 @@ fn search_cards(query: String, limit: Option<usize>, where_clause: Option<String
     let query_vector = query_embedding[0].clone();
 
     // 2. Run Async Search using Global Runtime
-    let rt = get_runtime(); // <--- OPTIMIZATION: Use the static runtime
+    let rt = get_runtime();
     
     let results_json = rt.block_on(async {
         // Connect
-        let uri = "data/lancedb";
-        let db = connect(uri).execute().await
+        let uri = env::var("LANCEDB_URI").unwrap_or_else(|_| "/app/data/lancedb".to_string());
+        let db = connect(&uri).execute().await
             .map_err(|e| format!("DB Connection Failed: {}", e))?;
         
         let table = db.open_table("cards").execute().await

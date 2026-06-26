@@ -195,10 +195,13 @@ If that works, it proves that the app compiled, and is a memory-safe, hybrid AI/
 
 ### Phase Test Steps
 
-Build and boot the stack in the background
+\# 1. Build and boot the stack in the background (skip --build if this isn't the first time)
 `docker compose up --build -d`
 
-Attach directly to the interactive Python terminal loop
+\# 2. Pull the model weights inside the Ollama container (only needed the first time)
+`docker exec -it blind-eternities-llm ollama pull llama3.1`
+
+\# 3. Attach directly to the interactive Python terminal loop
 `docker attach blind-eternities-app`
 
 Once attached, hit Enter once to ensure your terminal syncs with the container output. You should see the prompt:
