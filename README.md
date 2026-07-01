@@ -219,9 +219,13 @@ To ensure that the Python state graph, the Ollama tool-calling capabilities, and
 
 `User: Can you check if this move is legal? I am trying to cast a spell during my opponent's untap step.`
 
+Extra test:
+
+`User: I have 3 blue mana available. Can I cast a spell that costs {1}{U}{U}?`
+
 ### Leaving the Container Safely
 
-When you are done testing, do not use `Ctrl + C`, as that can kill the main Python process inside the container. Instead, use the standard Docker escape sequence to detach cleanly while leaving the container running in the background: Press `Ctrl + P`, then immediately press `Ctrl + Q`.
+When you are done testing, do not use `Ctrl + C` to quit the App, as that can kill the main Python process inside the container. Instead, type `q` into the User prompt and hit enter.
 
 For complete environment teardown: `docker compose down`.
 

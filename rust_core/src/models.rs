@@ -119,7 +119,7 @@ impl ManaPool {
 
         // 4. Deduct generic from whatever is largest/remaining (Simplified: just subtract total) (Greedy Algorithm)
         // In a real engine, we'd ask the user WHICH mana to spend. 
-        // For this prototype, we just subtract from the pool greedily.
+        // For this prototype, just subtract from the pool greedily.
         let mut remaining_to_pay = generic_cost;
         
         // Helper closure to drain a color
@@ -156,22 +156,38 @@ pub struct Card {
 }
 
 // 2. The "Permanent" (On Battlefield)
-// Your original struct, kept exactly as is for board tracking.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Permanent {
+    #[serde(default = "generate_fallback_id")] // Custom fallback for unique IDs
     pub id: String,
     pub name: String,
-    pub oracle_text: String,
-    pub mana_value: u32,
-    pub types: Vec<CardType>,
-    pub colors: Vec<Color>,
-    pub is_legendary: bool,
+
+    #[serde(default)] pub oracle_text: String,
+    #[serde(default)] pub mana_value: u32,
+    #[serde(default)] pub types: Vec<CardType>,
+    #[serde(default)] pub colors: Vec<Color>,
+    #[serde(default)] pub is_legendary: bool,
+    
+    #[serde(default = "default_controller")] // Sane default controller
     pub controller: String,
     
-    #[serde(default)]
-    pub is_tapped: bool,
-    #[serde(default)]
-    pub damage_marked: u32,
+    #[serde(default)] pub is_tapped: bool,
+    #[serde(default)] pub damage_marked: u32,
+}
+
+fn generate_fallback_id() -> String {
+    // Falls back to a random-ish identifier if the LLM leaves it blank
+    format!("auto-{}", zone_version_rand()) 
+}
+
+fn default_controller() -> String {
+    "Player".to_string()
+}
+
+fn zone_version_rand() -> u16 {
+    // Quick pseudo-random number for basic structural integrity
+    let p = &0 as *const i32 as usize;
+    (p & 0xFFFF) as u16
 }
 
 impl Permanent {
