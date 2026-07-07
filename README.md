@@ -56,7 +56,7 @@ Steps to verify (ensure .env vars are filled out):
 
 * Smoke test:
   * Ensure terminal is at project root
-  * python -c "import mtg_logic_core; print(f'Bridge Operational: {mtg_logic_core.__name__}')"
+  * python -c "import mtg_logic_core; print(f'Bridge Operational: {mtg_logic_core.\_\_name\_\_}')"
 
 * Run interactive python agent (run as a module (-m) to resolve relative imports correctly):
   * python -m python_agent.main
@@ -234,8 +234,6 @@ For complete environment teardown: `docker compose down`.
 1. The agent node should trigger, recognize that it needs to evaluate a game action, and output: 🤖 Agent: I need to use tool 'validate_move'. along with the parsed arguments.
 2. The tools node will execute, invoking your compiled Rust core library, and output the result: 🛠️ Tool 'validate_move' Output: ...
 3. The loop will pass back to the agent node to synthesize that raw tool feedback into a clean, human-readable confirmation.
-
-
 
 ## Disclaimer
 
