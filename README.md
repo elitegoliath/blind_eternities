@@ -223,17 +223,37 @@ Extra test:
 
 `User: I have 3 blue mana available. Can I cast a spell that costs {1}{U}{U}?`
 
+**Expected Output:**
+
+1. The agent node should trigger, recognize that it needs to evaluate a game action, and output: 🤖 Agent: I need to use tool 'validate_move'. along with the parsed arguments.
+2. The tools node will execute, invoking your compiled Rust core library, and output the result: 🛠️ Tool 'validate_move' Output: ...
+3. The loop will pass back to the agent node to synthesize that raw tool feedback into a clean, human-readable confirmation.
+
 ### Leaving the Container Safely
 
 When you are done testing, do not use `Ctrl + C` to quit the App, as that can kill the main Python process inside the container. Instead, type `q` into the User prompt and hit enter.
 
 For complete environment teardown: `docker compose down`.
 
-**Expected Output:**
+### Advanced Test Scenarios
 
-1. The agent node should trigger, recognize that it needs to evaluate a game action, and output: 🤖 Agent: I need to use tool 'validate_move'. along with the parsed arguments.
-2. The tools node will execute, invoking your compiled Rust core library, and output the result: 🛠️ Tool 'validate_move' Output: ...
-3. The loop will pass back to the agent node to synthesize that raw tool feedback into a clean, human-readable confirmation.
+#### The Stack & Timing Test
+
+The Prompt to copy: `My opponent just cast a spell, so there is currently a spell on the stack. I want to cast 'Grizzly Bears', which is a Creature spell. Is this legal right now?`
+
+What this tests in Rust: The `check_cast_timing` function. Specifically, it tests if the LLM correctly populates the stack array in the JSON payload, and if Rust correctly enforces the !state.stack.is_empty() rule to block non-Instant spells.
+
+#### The Rule Limit Test
+
+The Prompt to copy: `It is my turn, it's my first main phase, and the stack is empty. However, I have already played 1 land this turn. Can I play a 'Mountain' from my hand?`
+
+What this tests in Rust: The `check_land_drop` function. It verifies if the LLM correctly parses that lands_played should be 1 (or higher) and ensures the Rust engine throws the Illegal("Land limit reached") ruling.
+
+#### The State-Based Action (SBA) Test
+
+The Prompt to copy: `I currently have a legendary creature named 'Ragavan, Nimble Pilferer' on the battlefield under my control. A spell just resolved, and a second legendary creature named 'Ragavan, Nimble Pilferer' entered the battlefield under my control. What happens?`
+
+What this tests in Rust: The O(N^2) `check_legend_rule` function. This forces the LLM to build a board_state array with two identical legendary permanents, testing if the Rust iteration loop successfully catches the duplicate names/controllers and triggers the Ruling::StateBasedAction.
 
 ## Disclaimer
 

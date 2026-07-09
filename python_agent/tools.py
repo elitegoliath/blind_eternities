@@ -23,7 +23,7 @@ def validate_move(
         card_name: The name of the card being played.
         mana_cost: The mana cost of the card, e.g., "{1}{U}{U}".
         board_state: A list of JSON objects representing the cards currently on the battlefield. 
-        mana_pool: A dictionary of available mana. Example: {"blue": 3, "red": 0, "colorless": 1}
+        mana_pool: A dictionary of available mana. ONLY include the exact mana explicitly provided by the user. Valid keys: white, blue, black, red, green, colorless.
     """
     
     print(f"\n[DEBUG] 🛠️  The Agent is checking move: {card_name} (Cost: {mana_cost})")
@@ -60,7 +60,7 @@ def validate_move(
             "message": "board_state must resolve to a list."
         }
 
-    # 2. Construct the STRICT GameState payload for Rust
+    # 3. Construct the STRICT GameState payload for Rust
     # We build the exact structural scaffolding that models.rs expects
     game_state_payload = {
         "active_player": "Player",
@@ -80,11 +80,25 @@ def validate_move(
         }
     }
     
-    # 3. Call the Rust "Judge"
+    # 4. Call the Rust "Judge"
     try:
         # returns string like "Legal" or "StateBasedAction: Legend Rule"
-        ruling = mtg_logic_core.check_board_state(json.dumps(game_state_payload)) 
-        return {"status": "success", "ruling": ruling}
+        # Rust returns a serialized JSON string, e.g., '[{"status":"Legal"}]'
+        ruling_raw_string = mtg_logic_core.check_board_state(json.dumps(game_state_payload)) 
+        
+        # Unpack the inner JSON string into a native Python list/dict
+        # to eliminate the escaped backslashes seen in the AI response in the CLI.
+        
+        try:
+            ruling_parsed = json.loads(ruling_raw_string)
+        except json.JSONDecodeError:
+            # Fallback just in case Rust ever returns a plain un-serialized string
+            ruling_parsed = ruling_raw_string
+
+        return {
+            "status": "success",
+            "ruling": ruling_parsed
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

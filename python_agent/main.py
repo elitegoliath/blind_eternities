@@ -86,10 +86,17 @@ def main():
     # Compile into a Runnable
     app = workflow.compile()
 
-    # --- 6. Interactive Loop ---
+    # --- 6. Visible Greeting ---
+    print("\n" + "="*55)
+    print(" 🧙‍♂️ Blind Eternities MTG Rules Agent is Online! ")
+    print(" Type your game state scenario below.")
+    print(" (Press Ctrl+C to exit)")
+    print("="*55 + "\n")
+
+    # --- 7. Interactive Loop ---
     print(">>> Agent Ready. Ask a question (or 'q' to quit).")
     while True:
-        user_input = input("\nUser: ")
+        user_input = input("Player: ")
         if user_input.lower() in ['q', 'quit', 'exit']:
             break
             
