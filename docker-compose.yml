@@ -25,6 +25,8 @@ services:
       dockerfile: Dockerfile
     container_name: blind-eternities-app
     environment:
+      # Tell the container to not wait to print to the terminal
+      - PYTHONUNBUFFERED=1
       - OPENAI_API_KEY=not-needed-for-local
       - LLM_BASE_URL=http://llm-engine:11434/v1
       # Tell LangChain exactly which Ollama model to request

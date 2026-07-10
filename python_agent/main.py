@@ -1,13 +1,10 @@
 # python_agent/main.py
 # This file is the main entry point for the Python Agent that interacts with the LLM and tools.
 
-import sys
-import operator
 from typing import TypedDict, Annotated, Sequence
 
 from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage
-from langchain_core.tools import Tool
 from langgraph.graph import StateGraph, END, add_messages
 from langgraph.prebuilt import ToolNode
 
@@ -86,20 +83,19 @@ def main():
     # Compile into a Runnable
     app = workflow.compile()
 
-    # --- 6. Visible Greeting ---
-    print("\n" + "="*55)
-    print(" 🧙‍♂️ Blind Eternities MTG Rules Agent is Online! ")
-    print(" Type your game state scenario below.")
-    print(" (Press Ctrl+C to exit)")
-    print("="*55 + "\n")
-
-    # --- 7. Interactive Loop ---
+    # --- 6. Interactive Loop ---
     print(">>> Agent Ready. Ask a question (or 'q' to quit).")
     while True:
         user_input = input("Player: ")
+
+        # Handle exit commands
         if user_input.lower() in ['q', 'quit', 'exit']:
             break
-            
+        
+        # Handle empty inputs or accidental presses of the Enter key
+        if not user_input.strip():
+            continue
+
         try:
             inputs = {"messages": [HumanMessage(content=user_input)]}
             
