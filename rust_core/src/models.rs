@@ -23,6 +23,8 @@ pub enum CardType {
     Planeswalker, 
     Sorcery, 
     Battle,
+    Legendary, 
+    Basic,
     Unknown  // Safety fallback
 }
 
