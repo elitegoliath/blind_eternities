@@ -166,7 +166,7 @@ pub struct Permanent {
 
     #[serde(default)] pub oracle_text: String,
     #[serde(default)] pub mana_value: u32,
-    #[serde(default)] pub types: Vec<CardType>,
+    #[serde(default, alias = "type_line")] pub types: Vec<CardType>,
     #[serde(default)] pub colors: Vec<Color>,
     #[serde(default)] pub is_legendary: bool,
     
@@ -210,20 +210,54 @@ impl Permanent {
     }
 }
 
+// --- RULES CONFIG FOR GAME STATE ---
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RulesConfig {
+    #[serde(default = "default_true")]
+    pub legend_rule_enabled: bool,
+    #[serde(default = "default_legend_max")]
+    pub legend_max_allowed: usize,
+    #[serde(default = "default_scope")]
+    pub legend_scope: String, // "controller" or "global"
+    #[serde(default = "default_land_limit")]
+    pub max_lands_per_turn: u8,
+}
+
+// Sane defaults so you don't have to update Python immediately
+fn default_true() -> bool { true }
+fn default_legend_max() -> usize { 1 }
+fn default_scope() -> String { "controller".to_string() }
+fn default_land_limit() -> u8 { 1 }
+
+impl Default for RulesConfig {
+    fn default() -> Self {
+        Self {
+            legend_rule_enabled: true,
+            legend_max_allowed: 1,
+            legend_scope: "controller".to_string(),
+            max_lands_per_turn: 1,
+        }
+    }
+}
+
 // --- THE STATE CONTAINER ---
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
-    pub active_player: String, // "Player" or "Opponent"
+    pub active_player: String,  // "Player" or "Opponent"
     pub is_active_player: bool, // Helper bool: Is it actually MY turn?
     pub phase: Phase,
     pub battlefield: Vec<Permanent>,
-    pub stack: Vec<String>,    // We can check .len() on this
-    pub lands_played: u8,      // Crucial for Land Logic
+    pub stack: Vec<String>,     // We can check .len() on this
+    pub lands_played: u8,       // Crucial for Land Logic
     
     #[serde(default)] 
-    pub mana_pool: ManaPool,   // The floating mana available to pay costs
+    pub mana_pool: ManaPool,    // The floating mana available to pay costs
     pub pending_action: Option<GameAction>, // The "Request": What is the user trying to do?
+
+    #[serde(default)] // Fallback to defaults if Python omits it
+    pub rules_config: RulesConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

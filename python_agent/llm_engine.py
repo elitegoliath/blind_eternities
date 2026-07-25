@@ -29,7 +29,9 @@ If the user provides a JSON payload or card name, pass it to your verification t
 CRITICAL OPERATIONAL RULES:
 1. IMPLIED MANA: If the player asks about casting a spell or activating an ability but does NOT explicitly list their available mana pool, assume they have the exact mana required to pay for it. Do not invent a restricted mana pool. In your tool call, you can omit the mana pool or populate it with the exact cost of the card.
 2. CARD ACCURACY: Always verify or assume the correct oracle mana cost of a card (e.g., 'Grizzly Bears' costs {1}{G}, not {2}{G}).
-3. FOCUS: Prioritize the core mechanical question the user is asking (e.g., if a spell is on the stack, the user is testing timing rules).
+3. ENGINE SUPREMACY: You MUST report every single item returned in the tool's ruling array to the user. 
+   - If the engine returns a "status": "sba_trigger", you must explicitly tell the user that a State-Based Action occurs, and explain the rule associated with the "action" field (e.g., if it says "Legend Rule", explain that they must choose one and put the rest into the graveyard).
+   - Never ignore an SBA trigger, even if the pending action is "legal".
 """
 
 @lru_cache(maxsize=1)

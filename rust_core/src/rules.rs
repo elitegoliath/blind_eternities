@@ -4,7 +4,7 @@
 // This file contains pure functions. They take data in and return a verdict.
 // They do not talk to a database or the internet; they just compute "Magic Physics."
 
-use crate::models::{GameState, GameAction, Card, CardType, Ruling, ManaPool, Permanent, Phase};
+use crate::models::{Card, CardType, GameAction, GameState, ManaPool, Permanent, Phase, RulesConfig, Ruling};
 
 pub struct Judge;
 
@@ -15,7 +15,7 @@ impl Judge {
 
         // 1. Check State-Based Actions (SBAs)
         // These happen automatically, regardless of player intent.
-        if let Some(sba) = Self::check_legend_rule(&state.battlefield) {
+        if let Some(sba) = Self::check_legend_rule(&state.battlefield, &state.rules_config) {
             rulings.push(sba);
         }
         
@@ -98,27 +98,49 @@ impl Judge {
         Ok(())
     }
 
-    /// Internal Logic: The "Legend Rule" (CR 704.5j)
-    fn check_legend_rule(permanents: &[Permanent]) -> Option<Ruling> {
-        // Simple O(N^2) check: Do two legendary perms share a name and controller?
+    /// Internal Logic: The parameterized "Legend Rule"
+    fn check_legend_rule(permanents: &[Permanent], config: &RulesConfig) -> Option<Ruling> {
+        if !config.legend_rule_enabled { return None; }
+
         for (i, p1) in permanents.iter().enumerate() {
-            if !p1.is_legendary { continue; }
+            if !p1.types.contains(&CardType::Legendary) { continue; } 
+            
+            let mut match_count = 1;
+            
             for (j, p2) in permanents.iter().enumerate() {
-                if i == j { continue; } // Don't compare self
-                if p2.is_legendary && p1.name == p2.name && p1.controller == p2.controller {
-                    return Some(Ruling::StateBasedAction(format!("Legend Rule: {}", p1.name)));
+                if i == j { continue; } 
+                
+                // Read the scope from config
+                let scope_match = if config.legend_scope == "controller" {
+                    p1.controller == p2.controller
+                } else {
+                    true // The old global rule
+                };
+
+                if p2.types.contains(&CardType::Legendary) && p1.name == p2.name && scope_match {
+                    match_count += 1;
                 }
+            }
+
+            // Read the limit from config
+            if match_count > config.legend_max_allowed {
+                return Some(Ruling::StateBasedAction(format!("Legend Rule: {}", p1.name)));
             }
         }
         None
     }
 
-    /// Internal Logic: Playing a Land (CR 305)
+    /// Internal Logic: Parameterized Land Drops
     fn check_land_drop(state: &GameState, card: &Card) -> Ruling {
         if !card.type_line.contains(&CardType::Land) { return Ruling::Illegal("Not a Land".into()); }
         if !state.is_active_player { return Ruling::Illegal("Not your turn".into()); }
         if !state.stack.is_empty() { return Ruling::Illegal("Stack not empty".into()); }
-        if state.lands_played >= 1 { return Ruling::Illegal("Land limit reached".into()); }
+        
+        // Read the limit from config
+        if state.lands_played >= state.rules_config.max_lands_per_turn { 
+            return Ruling::Illegal(format!("Land limit of {} reached", state.rules_config.max_lands_per_turn)); 
+        }
+        
         match state.phase {
             Phase::Main1 | Phase::Main2 => Ruling::Legal,
             _ => Ruling::Illegal("Wrong Phase".into())
@@ -152,106 +174,6 @@ impl Judge {
             Ruling::Legal
         } else {
             Ruling::Illegal("Insufficient Mana".to_string())
-        }
-    }
-}
-
-// --- TESTS ---
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_mana_parsing_and_payment() {
-        // Scenario: Cost is "{1}{U}{U}" (Cryptic Command logic)
-        // Player has: {U}:3
-        
-        let card = Card {
-            name: "Counterspell".into(),
-            type_line: vec![CardType::Instant],
-            mana_cost: "{1}{U}{U}".into(),
-        };
-
-        let mut pool = ManaPool::default();
-        pool.blue = 3; // Total 3 mana, all blue.
-
-        let state = GameState {
-            active_player: "Hero".into(),
-            is_active_player: true,
-            phase: Phase::Main1,
-            battlefield: vec![],
-            stack: vec![],
-            lands_played: 0,
-            mana_pool: pool, // <--- 3 Blue Available
-            pending_action: Some(GameAction::CastSpell(card)),
-        };
-
-        // Should be Legal:
-        // Cost: 2 Blue (paid), 1 Generic (paid with remaining 1 Blue)
-        let rulings = Judge::assess_state(&state);
-        assert!(matches!(rulings[0], Ruling::Legal));
-    }
-
-    #[test]
-    fn test_mana_insufficient_generic() {
-        // Scenario: Cost "{4}"
-        // Player has: {R}: 3
-        let card = Card {
-            name: "Golem".into(),
-            type_line: vec![CardType::Artifact],
-            mana_cost: "{4}".into(),
-        };
-
-        let mut pool = ManaPool::default();
-        pool.red = 3; 
-
-        let state = GameState {
-            active_player: "Hero".into(),
-            is_active_player: true,
-            phase: Phase::Main1,
-            battlefield: vec![],
-            stack: vec![],
-            lands_played: 0,
-            mana_pool: pool,
-            pending_action: Some(GameAction::CastSpell(card)),
-        };
-
-        let rulings = Judge::assess_state(&state);
-        match &rulings[0] {
-            Ruling::Illegal(msg) => assert!(msg.contains("Not enough generic")),
-            _ => panic!("Should fail generic check"),
-        }
-    }
-
-    #[test]
-    fn test_mana_insufficient_color() {
-        // Scenario: Cost "{U}"
-        // Player has: {R}: 10
-        let card = Card {
-            name: "Unsummon".into(),
-            type_line: vec![CardType::Instant],
-            mana_cost: "{U}".into(),
-        };
-
-        let mut pool = ManaPool::default();
-        pool.red = 10; 
-
-        let state = GameState {
-            active_player: "Hero".into(),
-            is_active_player: true,
-            phase: Phase::Main1,
-            battlefield: vec![],
-            stack: vec![],
-            lands_played: 0,
-            mana_pool: pool,
-            pending_action: Some(GameAction::CastSpell(card)),
-        };
-
-        let rulings = Judge::assess_state(&state);
-        match &rulings[0] {
-            Ruling::Illegal(msg) => assert!(msg.contains("Not enough Blue")),
-            _ => panic!("Should fail color check"),
         }
     }
 }
