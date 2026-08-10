@@ -26,17 +26,27 @@ impl Judge {
                 GameAction::PlayLand(card) => {
                     rulings.push(Self::check_land_drop(state, card));
                 },
-                GameAction::CastSpell(card) => {
-                    // 1. Check Timing
-                    let timing = Self::check_cast_timing(state, card);
-                    if let Ruling::Illegal(_) = timing {
-                        rulings.push(timing);
+                GameAction::CastSpell { card, targets } => {
+                    // 1. Check Targets First!
+                    if let Some(target_violation) = Self::check_targets(state, &state.active_player, targets) {
+                        rulings.push(target_violation);
                     } else {
-                        // 2. Check Mana (Only if timing is okay)
-                        rulings.push(Self::check_mana_cost(state, card));
+                        // 2. Check Timing (Only if targets are valid)
+                        let timing = Self::check_cast_timing(state, card);
+                        if let Ruling::Illegal(_) = timing {
+                            rulings.push(timing);
+                        } else {
+                            // 3. Check Mana 
+                            rulings.push(Self::check_mana_cost(state, card));
+                        }
                     }
                 },
-                GameAction::ActivateAbility { .. } => {}
+                GameAction::ActivateAbility { source_id, ability_index, targets } => {
+                    if let Some(target_violation) = Self::check_targets(state, &state.active_player, targets) {
+                        rulings.push(target_violation);
+                    }
+                    // Future: Implement ability cost and timing checks
+                }
             }
         }
 
@@ -59,8 +69,11 @@ impl Judge {
             }
         }
 
+        // We clone the action so we can mutate the state without borrow checker fights
+        let pending = state.pending_action.clone();
+
         // 2. Execute Action (If we are here, it's legal)
-        if let Some(action) = &state.pending_action {
+        if let Some(action) = pending {
             match action {
                 GameAction::PlayLand(card) => {
                     // Update Limits
@@ -68,28 +81,37 @@ impl Judge {
                     
                     // Create Permanent
                     let perm = Permanent::from_card(
-                        card, 
+                        &card, 
                         state.active_player.clone(), 
                         state.battlefield.len()
                     );
                     state.battlefield.push(perm);
                 },
-                GameAction::CastSpell(card) => {
+                GameAction::CastSpell { card, targets } => {
                     // Calculate Cost again
-                    let (generic, cost_pool) = ManaPool::from_cost_string(&card.mana_cost)
-                        .map_err(|e| e)?; // Should catch in validation, but safe unwrap here
+                    let (generic, cost_pool) = crate::models::ManaPool::from_cost_string(&card.mana_cost)
+                        .map_err(|e| e)?; 
                     
                     // Pay Mana (Mutates Pool)
                     if !state.mana_pool.pay(&cost_pool, generic) {
                         return Err("CRITICAL: Mana validation passed but payment failed.".to_string());
                     }
 
-                    // Move to Stack
-                    // For now, we just push the name string. 
-                    // In real engine, we'd push a SpellObject.
-                    state.stack.push(card.name.clone());
+                    // Move to Stack as a fully realized StackObject
+                    let stack_id = format!("spell-{}-{}", card.name.replace(" ", "").to_lowercase(), state.stack.len());
+                    
+                    let spell = crate::models::StackObject {
+                        id: stack_id,
+                        card,
+                        controller: state.active_player.clone(),
+                        targets,
+                    };
+                    
+                    state.stack.push(spell);
                 },
-                _ => {}
+                GameAction::ActivateAbility { source_id, ability_index, targets } => {
+                    // Future: Pay ability costs and put a StackObject (Ability) on the stack
+                }
             }
         }
 
@@ -175,5 +197,56 @@ impl Judge {
         } else {
             Ruling::Illegal("Insufficient Mana".to_string())
         }
+    }
+
+    /// Internal Logic: Target Legality (CR 601.2c)
+    fn check_targets(state: &GameState, source_controller: &str, targets: &[crate::models::Target]) -> Option<Ruling> {
+        for target in targets {
+            match target {
+                crate::models::Target::Permanent(id) => {
+                    // 1. Does it exist?
+                    let target_perm = state.battlefield.iter().find(|p| p.id == *id);
+                    
+                    if let Some(perm) = target_perm {
+                        // 2. Check Targeting Restrictions (Shroud & Hexproof)
+                        let text = perm.oracle_text.to_lowercase();
+                        
+                        if text.contains("shroud") {
+                            return Some(Ruling::Illegal(format!(
+                                "Invalid target: '{}' has Shroud and cannot be targeted.", perm.name
+                            )));
+                        }
+                        
+                        if text.contains("hexproof") && perm.controller != source_controller {
+                            return Some(Ruling::Illegal(format!(
+                                "Invalid target: '{}' has Hexproof and cannot be targeted by spells controlled by an opponent.", perm.name
+                            )));
+                        }
+                        
+                        // Future: Check "Protection from [Color]" here
+                    } else {
+                        return Some(Ruling::Illegal(format!("Target permanent ID '{}' not found on the battlefield.", id)));
+                    }
+                },
+                crate::models::Target::StackObject(id) => {
+                    // Used for Counterspells, Forks, etc.
+                    if !state.stack.iter().any(|obj| obj.id == *id) {
+                        return Some(Ruling::Illegal(format!("Target spell ID '{}' not found on the stack.", id)));
+                    }
+                },
+                crate::models::Target::Player(name) => {
+                    // Verify the player exists (for now, hardcoded string check)
+                    if name != "Player" && name != "Opponent" {
+                        return Some(Ruling::Illegal(format!("Invalid player target: '{}'.", name)));
+                    }
+                },
+                crate::models::Target::ZoneCard(_) => {
+                    // Future: Graveyard or Exile targets (e.g., Reanimate)
+                }
+            }
+        }
+        
+        // If we looped through all targets and found no violations, it's clean.
+        None
     }
 }

@@ -28,10 +28,14 @@ def validate_move(
         action_type: The type of action being taken. Must be one of: "CastSpell", "PlayLand", "ActivateAbility".
         type_line: A list of card types and supertypes. Examples: ["Creature"], ["Legendary", "Creature"], ["Basic", "Land"]. Valid base types include Artifact, Creature, Enchantment, Instant, Land, Planeswalker, Sorcery.
         mana_cost: The mana cost of the card. MUST be exactly "" (empty string) for Lands.
-        board_state: A list of JSON objects representing cards currently on the battlefield. Each object MUST include a "name" and "type_line" key. Omit if the battlefield is empty.
+        board_state: board_state: A list of JSON objects representing cards currently on the battlefield. Each object MUST include a "name", "type_line", and a unique "id" (e.g., "bear-1").
         mana_pool: A dictionary of available mana. ONLY include the exact mana explicitly provided by the user.
-        stack: A list of spell names currently on the stack. 
+        stack: A list of JSON objects representing spells on the stack. Each object MUST include "id", "card" (with name and type_line), and "targets". 
         lands_played: The number of lands the player has already played this turn. Default is 0.
+        targets: A list of JSON target objects for the pending action. Examples:
+                [{"type": "Permanent", "id": "bear-1"}]
+                [{"type": "Player", "id": "Opponent"}]
+                [{"type": "StackObject", "id": "spell-1"}]
     """
     
     print(f"\n[DEBUG] 🛠️  The Agent is checking move: {card_name} (Cost: {mana_cost})")

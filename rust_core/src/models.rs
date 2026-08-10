@@ -50,8 +50,44 @@ pub enum Ruling {
     StateBasedAction(String), // e.g. "Legend Rule"
 }
 
-// --- MANA SYSTEM ---
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(tag = "type", content = "payload")]
+pub enum GameAction {
+    CastSpell {
+        card: Card,
+        #[serde(default)]
+        targets: Vec<Target>
+    },
+    PlayLand(Card),
+    ActivateAbility { 
+        source_id: String,
+        ability_index: u32,
+        #[serde(default)]
+        targets: Vec<Target>
+    },
+}
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(tag = "type", content = "id")]
+pub enum Target {
+    Permanent(String),    // Points to the `id` of a Permanent on the battlefield
+    Player(String),       // "Player" or "Opponent"
+    StackObject(String),  // Points to the `id` of a spell currently on the stack
+    ZoneCard(String)      // Points to a card in a Graveyard or Exile
+}
+
+// The "Stack" object
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StackObject {
+    #[serde(default = "generate_fallback_id")]
+    pub id: String,           // Every spell needs a UUID so it can be targeted by Counterspells
+    pub card: Card,           // The base card data
+    pub controller: String,
+    #[serde(default)]
+    pub targets: Vec<Target>  // The things the spell is pointing at
+}
+
+// The "Mana" system
 #[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 pub struct ManaPool {
     #[serde(default)] pub white: u32,
@@ -145,9 +181,7 @@ impl ManaPool {
     }
 }
 
-// --- STRUCTS ---
-
-// 1. The "Card" (In Hand / On Stack)
+// The "Card" (In Hand / On Stack)
 // Used when the player attempts an action. It doesn't have board state like 'tapped'.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Card {
@@ -157,7 +191,7 @@ pub struct Card {
     pub mana_cost: String,
 }
 
-// 2. The "Permanent" (On Battlefield)
+// The "Permanent" (On Battlefield)
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Permanent {
     #[serde(default = "generate_fallback_id")] // Custom fallback for unique IDs
@@ -249,7 +283,7 @@ pub struct GameState {
     pub is_active_player: bool, // Helper bool: Is it actually MY turn?
     pub phase: Phase,
     pub battlefield: Vec<Permanent>,
-    pub stack: Vec<String>,     // We can check .len() on this
+    pub stack: Vec<StackObject>, 
     pub lands_played: u8,       // Crucial for Land Logic
     
     #[serde(default)] 
@@ -258,12 +292,4 @@ pub struct GameState {
 
     #[serde(default)] // Fallback to defaults if Python omits it
     pub rules_config: RulesConfig,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(tag = "type", content = "payload")]
-pub enum GameAction {
-    CastSpell(Card),
-    PlayLand(Card),
-    ActivateAbility { source_id: String, ability_index: u32 },
 }
