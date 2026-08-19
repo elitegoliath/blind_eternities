@@ -143,4 +143,82 @@ def validate_move(
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+@tool
+def resolve_stack(
+    board_state: Union[str, List[Dict[str, Any]]] = None, 
+    stack: Union[str, List[Dict[str, Any]]] = None
+) -> dict:
+    """
+    Resolves the top spell or ability on the stack (LIFO order).
+    Call this when all players pass priority and the stack is not empty.
+    
+    Args:
+        board_state: A list of JSON objects representing cards currently on the battlefield.
+        stack: A list of JSON objects representing spells currently on the stack.
+    """
+    
+    print("\n[DEBUG] 🛠️  The Agent is resolving the top of the stack.")
+    
+    # 1. Initialize defaults
+    if board_state is None:
+        board_state = []
+    if stack is None:
+        stack = []
+
+    # 2. Defensively clean up board_state
+    if isinstance(board_state, str):
+        if not board_state.strip():
+            board_state = []
+        else:
+            try:
+                board_state = json.loads(board_state)
+            except json.JSONDecodeError:
+                try:
+                    board_state = ast.literal_eval(board_state)
+                except (ValueError, SyntaxError):
+                    return {"status": "error", "message": "board_state must be a valid JSON array."}
+
+    # 3. Defensively clean up stack
+    if isinstance(stack, str):
+        if not stack.strip():
+            stack = []
+        else:
+            try:
+                stack = json.loads(stack)
+            except json.JSONDecodeError:
+                try:
+                    stack = ast.literal_eval(stack)
+                except (ValueError, SyntaxError):
+                    return {"status": "error", "message": "stack must be a valid JSON array."}
+
+    if not isinstance(board_state, list):
+        return {"status": "error", "message": "board_state must resolve to a list."}
+    if not isinstance(stack, list):
+        return {"status": "error", "message": "stack must resolve to a list."}
+    
+    # 4. Construct the GameState payload
+    game_state_payload = {
+        "active_player": "Player",
+        "is_active_player": True,
+        "phase": "Main Phase 1", 
+        "battlefield": board_state,
+        "stack": stack, 
+        "lands_played": 0,
+        "mana_pool": {},
+        "pending_action": None 
+    }
+    
+    # 5. Call the Rust Engine
+    try:
+        ruling_raw_str = mtg_logic_core.resolve_stack_top(json.dumps(game_state_payload)) 
+        
+        try:
+            ruling_parsed = json.loads(ruling_raw_str)
+        except json.JSONDecodeError:
+            ruling_parsed = ruling_raw_str
+            
+        return ruling_parsed
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 # Note: We don't define search_rules yet, but can be added here later with @tool

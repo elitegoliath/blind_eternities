@@ -120,6 +120,96 @@ impl Judge {
         Ok(())
     }
 
+    /// Helper: Does a player have Hexproof or Shroud?
+    fn player_has_protection(state: &GameState, target_player: &str, source_controller: &str) -> bool {
+        state.battlefield.iter().any(|perm| {
+            // Did this player's permanent grant them protection?
+            if perm.controller == target_player {
+                let text = perm.oracle_text.to_lowercase();
+                let has_shroud = text.contains("you have shroud");
+                let has_hexproof = text.contains("you have hexproof");
+                
+                if has_shroud { return true; }
+                if has_hexproof && target_player != source_controller { return true; }
+            }
+            false
+        })
+    }
+
+    /// Re-evaluates targets upon resolution (CR 608.2b)
+    /// Returns true if at least ONE target is still legal.
+    fn are_targets_still_legal(state: &GameState, controller: &str, targets: &[crate::models::Target]) -> bool {
+        if targets.is_empty() { return true; } // Spells without targets always resolve
+
+        let mut legal_count = 0;
+
+        for target in targets {
+            match target {
+                crate::models::Target::Permanent(id) => {
+                    // Still on the battlefield?
+                    if let Some(perm) = state.battlefield.iter().find(|p| p.id == *id) {
+                        // Still lacking Shroud/Hexproof?
+                        let text = perm.oracle_text.to_lowercase();
+                        let shroud = text.contains("shroud");
+                        let hexproof = text.contains("hexproof") && perm.controller != controller;
+
+                        if !shroud && !hexproof {
+                            legal_count += 1;
+                        }
+                    }
+                },
+                crate::models::Target::StackObject(id) => {
+                    if state.stack.iter().any(|obj| obj.id == *id) {
+                        legal_count += 1;
+                    }
+                },
+                crate::models::Target::Player(name) => {
+                    if !Self::player_has_protection(state, name, controller) {
+                        legal_count += 1;
+                    }
+                },
+                _ => { legal_count += 1; }
+            }
+        }
+
+        legal_count > 0
+    }
+
+    /// Pops the top of the stack and resolves it
+    pub fn resolve_top(state: &mut GameState) -> Result<String, String> {
+        // 1. LIFO Pop
+        let top = state.stack.pop().ok_or("The stack is already empty.")?;
+
+        // 2. The Fizzle Check
+        if !Self::are_targets_still_legal(state, &top.controller, &top.targets) {
+            // In a full engine, this goes to the Graveyard.
+            return Ok(format!("Spell '{}' fizzled because all targets became illegal.", top.card.name));
+        }
+
+        // 3. Resolution
+        // Is it a permanent spell? (Creature, Artifact, Enchantment, Planeswalker)
+        let is_permanent = top.card.type_line.iter().any(|t| 
+            matches!(t, CardType::Creature | CardType::Artifact | CardType::Enchantment | CardType::Planeswalker)
+        );
+
+        if is_permanent {
+            // It resolves and enters the battlefield
+            let perm = Permanent::from_card(&top.card, top.controller.clone(), state.battlefield.len());
+            state.battlefield.push(perm);
+            
+            // Run SBAs immediately after a permanent enters
+            if let Some(Ruling::StateBasedAction(sba)) = Self::check_legend_rule(&state.battlefield, &state.rules_config) {
+                return Ok(format!("{} resolved and entered the battlefield. {}", top.card.name, sba));
+            }
+            
+            Ok(format!("{} resolved and entered the battlefield.", top.card.name))
+        } else {
+            // It is an Instant or Sorcery. 
+            // In a full engine, we'd execute its Oracle text effects here.
+            Ok(format!("{} resolved. (Instant/Sorcery effects not yet implemented)", top.card.name))
+        }
+    }
+
     /// Internal Logic: The parameterized "Legend Rule"
     fn check_legend_rule(permanents: &[Permanent], config: &RulesConfig) -> Option<Ruling> {
         if !config.legend_rule_enabled { return None; }
@@ -238,6 +328,9 @@ impl Judge {
                     // Verify the player exists (for now, hardcoded string check)
                     if name != "Player" && name != "Opponent" {
                         return Some(Ruling::Illegal(format!("Invalid player target: '{}'.", name)));
+                    }
+                    if Self::player_has_protection(state, name, source_controller) {
+                        return Some(Ruling::Illegal(format!("Invalid target: '{}' has Hexproof or Shroud.", name)));
                     }
                 },
                 crate::models::Target::ZoneCard(_) => {

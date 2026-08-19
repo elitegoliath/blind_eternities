@@ -189,10 +189,35 @@ fn apply_action(json_payload: String) -> PyResult<String> {
     }
 }
 
+#[pyfunction]
+fn resolve_stack_top(json_payload: String) -> PyResult<String> {
+    let mut state: GameState = match serde_json::from_str(&json_payload) {
+        Ok(s) => s,
+        Err(e) => return Ok(json!({ "status": "error", "message": format!("JSON Parse Error: {}", e) }).to_string()),
+    };
+
+    match Judge::resolve_top(&mut state) {
+        Ok(resolution_msg) => {
+            Ok(json!({ 
+                "status": "success", 
+                "message": resolution_msg,
+                "new_state": state 
+            }).to_string())
+        },
+        Err(e) => {
+            Ok(json!({ 
+                "status": "error", 
+                "message": e 
+            }).to_string())
+        }
+    }
+}
+
 #[pymodule]
 fn mtg_logic_core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_board_state, m)?)?;
     m.add_function(wrap_pyfunction!(search_cards, m)?)?;
-    m.add_function(wrap_pyfunction!(apply_action, m)?)?; // <--- Register New Function
+    m.add_function(wrap_pyfunction!(apply_action, m)?)?;
+    m.add_function(wrap_pyfunction!(resolve_stack_top, m)?)?;
     Ok(())
 }
