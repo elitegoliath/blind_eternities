@@ -4,7 +4,7 @@
 from typing import TypedDict, Annotated, Sequence
 
 from dotenv import load_dotenv
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END, add_messages
 from langgraph.prebuilt import ToolNode
 
@@ -43,7 +43,7 @@ def main():
         # Get conversation history
         messages = state["messages"]
         # Invoke the LLM
-        response = llm_with_tools.invoke([SYSTEM_PROMPT] + list(messages))
+        response = llm_with_tools.invoke([SystemMessage(content=SYSTEM_PROMPT)] + list(messages))
         # Return the new message to update state
         return {"messages": [response]}
 

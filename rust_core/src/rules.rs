@@ -4,6 +4,8 @@
 // This file contains pure functions. They take data in and return a verdict.
 // They do not talk to a database or the internet; they just compute "Magic Physics."
 
+use std::collections::HashMap;
+
 use crate::models::{Card, CardType, GameAction, GameState, ManaPool, Permanent, Phase, RulesConfig, Ruling};
 
 pub struct Judge;
@@ -12,14 +14,8 @@ impl Judge {
     /// The Main Loop: Checks for any violations or triggers
     pub fn assess_state(state: &GameState) -> Vec<Ruling> {
         let mut rulings = Vec::new();
-
-        // 1. Check State-Based Actions (SBAs)
-        // These happen automatically, regardless of player intent.
-        if let Some(sba) = Self::check_legend_rule(&state.battlefield, &state.rules_config) {
-            rulings.push(sba);
-        }
         
-        // 2. Check Player Actions
+        // Check Player Actions
         // "Can I actually do this thing I'm trying to do?"
         if let Some(action) = &state.pending_action {
             match action {
@@ -177,37 +173,44 @@ impl Judge {
 
     /// Pops the top of the stack and resolves it
     pub fn resolve_top(state: &mut GameState) -> Result<String, String> {
-        // 1. LIFO Pop
         let top = state.stack.pop().ok_or("The stack is already empty.")?;
 
-        // 2. The Fizzle Check
         if !Self::are_targets_still_legal(state, &top.controller, &top.targets) {
-            // In a full engine, this goes to the Graveyard.
             return Ok(format!("Spell '{}' fizzled because all targets became illegal.", top.card.name));
         }
 
-        // 3. Resolution
-        // Is it a permanent spell? (Creature, Artifact, Enchantment, Planeswalker)
+        let mut effect_msgs = Vec::new();
         let is_permanent = top.card.type_line.iter().any(|t| 
             matches!(t, CardType::Creature | CardType::Artifact | CardType::Enchantment | CardType::Planeswalker)
         );
 
         if is_permanent {
-            // It resolves and enters the battlefield
             let perm = Permanent::from_card(&top.card, top.controller.clone(), state.battlefield.len());
             state.battlefield.push(perm);
-            
-            // Run SBAs immediately after a permanent enters
-            if let Some(Ruling::StateBasedAction(sba)) = Self::check_legend_rule(&state.battlefield, &state.rules_config) {
-                return Ok(format!("{} resolved and entered the battlefield. {}", top.card.name, sba));
-            }
-            
-            Ok(format!("{} resolved and entered the battlefield.", top.card.name))
+            effect_msgs.push(format!("{} entered the battlefield.", top.card.name));
         } else {
-            // It is an Instant or Sorcery. 
-            // In a full engine, we'd execute its Oracle text effects here.
-            Ok(format!("{} resolved. (Instant/Sorcery effects not yet implemented)", top.card.name))
+            // Instant or Sorcery
+            for effect in &top.card.effects {
+                match effect {
+                    crate::models::Effect::DealDamage { amount } => {
+                        for target in &top.targets {
+                            if let crate::models::Target::Permanent(id) = target {
+                                if let Some(perm) = state.battlefield.iter_mut().find(|p| p.id == *id) {
+                                    perm.damage_marked += amount;
+                                    effect_msgs.push(format!("Dealt {} damage to {}.", amount, perm.name));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
+
+        // CR 117.5: Enforce SBAs immediately after ANY spell resolves (Permanent or Spell)
+        let sba_msgs = Self::enforce_sbas(state);
+        effect_msgs.extend(sba_msgs);
+
+        Ok(format!("{} resolved. {}", top.card.name, effect_msgs.join(" ")))
     }
 
     /// Internal Logic: The parameterized "Legend Rule"
@@ -341,5 +344,50 @@ impl Judge {
         
         // If we looped through all targets and found no violations, it's clean.
         None
+    }
+
+    /// Actively sweeps the board and removes permanents that violate state (CR 704)
+    pub fn enforce_sbas(state: &mut GameState) -> Vec<String> {
+        let mut messages = Vec::new();
+        let mut seen_legends: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+        let mut i = 0;
+
+        while i < state.battlefield.len() {
+            let mut should_remove = false;
+            let perm = &state.battlefield[i].clone(); // Clone for safe reading
+            
+            // 1. Lethal Damage (AUTOMATIC EXECUTION)
+            let is_creature = perm.types.contains(&CardType::Creature);
+            if is_creature && (perm.toughness <= 0 || perm.damage_marked >= perm.toughness as u32) {
+                messages.push(format!("{} was destroyed by state-based actions.", perm.name));
+                should_remove = true;
+            }
+
+            // 2. The Legend Rule (CHOICE REQUIRED)
+            if !should_remove && state.rules_config.legend_rule_enabled && perm.types.contains(&CardType::Legendary) {
+                let scope_key = if state.rules_config.legend_scope == "controller" {
+                    (perm.name.clone(), perm.controller.clone())
+                } else {
+                    (perm.name.clone(), "global".to_string())
+                };
+
+                let count = seen_legends.entry(scope_key).or_insert(0);
+                *count += 1;
+
+                if *count > state.rules_config.legend_max_allowed {
+                    // DO NOT DELETE IT. Just scream at the LLM to ask the player.
+                    messages.push(format!("ACTION REQUIRED: Legend Rule violation for {}. Player must choose which one to keep and put the rest into the graveyard.", perm.name));
+                }
+            }
+
+            // Execute Removal (Only for Automatic SBAs like damage)
+            if should_remove {
+                state.battlefield.remove(i);
+            } else {
+                i += 1;
+            }
+        }
+        
+        messages
     }
 }

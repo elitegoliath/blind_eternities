@@ -152,9 +152,35 @@ def resolve_stack(
     Resolves the top spell or ability on the stack (LIFO order).
     Call this when all players pass priority and the stack is not empty.
     
-    Args:
-        board_state: A list of JSON objects representing cards currently on the battlefield.
-        stack: A list of JSON objects representing spells currently on the stack.
+    IMPORTANT: Format your JSON exactly like this example:
+    
+    board_state example:
+    [
+      {
+        "id": "bear-1", 
+        "name": "Grizzly Bears", 
+        "controller": "Opponent", 
+        "type_line": ["Creature"], 
+        "power": 2, 
+        "toughness": 2, 
+        "damage_marked": 0, 
+        "oracle_text": ""
+      }
+    ]
+    
+    stack example:
+    [
+      {
+        "id": "bolt-1", 
+        "controller": "Player", 
+        "targets": [{"type": "Permanent", "id": "bear-1"}], 
+        "card": {
+          "name": "Lightning Bolt", 
+          "type_line": ["Instant"], 
+          "effects": [{"type": "DealDamage", "amount": 3}]
+        }
+      }
+    ]
     """
     
     print("\n[DEBUG] 🛠️  The Agent is resolving the top of the stack.")

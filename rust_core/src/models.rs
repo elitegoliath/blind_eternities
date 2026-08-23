@@ -8,6 +8,14 @@ use serde::{Deserialize, Serialize};
 
 // --- ENUMS ---
 
+// Define the Effect Enum
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum Effect {
+    DealDamage { amount: u32 },
+    // Future effects go here: DrawCards { amount: u32 }, GainLife { amount: u32 }, etc.
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
 pub enum Color {
     White, Blue, Black, Red, Green, Colorless
@@ -189,6 +197,8 @@ pub struct Card {
     pub type_line: Vec<CardType>,
     #[serde(default)] 
     pub mana_cost: String,
+    #[serde(default)]
+    pub effects: Vec<Effect>, // The LLM will populate this!
 }
 
 // The "Permanent" (On Battlefield)
@@ -209,6 +219,9 @@ pub struct Permanent {
     
     #[serde(default)] pub is_tapped: bool,
     #[serde(default)] pub damage_marked: u32,
+
+    #[serde(default)] pub power: i32,
+    #[serde(default)] pub toughness: i32,
 }
 
 fn generate_fallback_id() -> String {
@@ -239,7 +252,9 @@ impl Permanent {
             is_legendary: false, // Need this info on Card (skip for now)
             controller,
             is_tapped: false,
-            damage_marked: 0
+            damage_marked: 0,
+            power: 0,
+            toughness: 0
         }
     }
 }
