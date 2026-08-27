@@ -4,9 +4,7 @@
 // This file contains pure functions. They take data in and return a verdict.
 // They do not talk to a database or the internet; they just compute "Magic Physics."
 
-use std::collections::HashMap;
-
-use crate::models::{Card, CardType, GameAction, GameState, ManaPool, Permanent, Phase, RulesConfig, Ruling};
+use crate::models::{Card, CardType, GameAction, GameState, ManaPool, Permanent, Phase, Ruling};
 
 pub struct Judge;
 
@@ -37,7 +35,7 @@ impl Judge {
                         }
                     }
                 },
-                GameAction::ActivateAbility { source_id, ability_index, targets } => {
+                GameAction::ActivateAbility { source_id: _, ability_index: _, targets } => {
                     if let Some(target_violation) = Self::check_targets(state, &state.active_player, targets) {
                         rulings.push(target_violation);
                     }
@@ -105,7 +103,7 @@ impl Judge {
                     
                     state.stack.push(spell);
                 },
-                GameAction::ActivateAbility { source_id, ability_index, targets } => {
+                GameAction::ActivateAbility { source_id: _, ability_index: _, targets: _ } => {
                     // Future: Pay ability costs and put a StackObject (Ability) on the stack
                 }
             }
@@ -211,38 +209,6 @@ impl Judge {
         effect_msgs.extend(sba_msgs);
 
         Ok(format!("{} resolved. {}", top.card.name, effect_msgs.join(" ")))
-    }
-
-    /// Internal Logic: The parameterized "Legend Rule"
-    fn check_legend_rule(permanents: &[Permanent], config: &RulesConfig) -> Option<Ruling> {
-        if !config.legend_rule_enabled { return None; }
-
-        for (i, p1) in permanents.iter().enumerate() {
-            if !p1.types.contains(&CardType::Legendary) { continue; } 
-            
-            let mut match_count = 1;
-            
-            for (j, p2) in permanents.iter().enumerate() {
-                if i == j { continue; } 
-                
-                // Read the scope from config
-                let scope_match = if config.legend_scope == "controller" {
-                    p1.controller == p2.controller
-                } else {
-                    true // The old global rule
-                };
-
-                if p2.types.contains(&CardType::Legendary) && p1.name == p2.name && scope_match {
-                    match_count += 1;
-                }
-            }
-
-            // Read the limit from config
-            if match_count > config.legend_max_allowed {
-                return Some(Ruling::StateBasedAction(format!("Legend Rule: {}", p1.name)));
-            }
-        }
-        None
     }
 
     /// Internal Logic: Parameterized Land Drops

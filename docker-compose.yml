@@ -3,7 +3,7 @@ services:
     image: ollama/ollama:latest
     container_name: blind-eternities-llm
     environment:
-      - LANCEDB_URI=/app/data/lancedb
+      - LANCEDB_URI=./data/lancedb
     ports:
       - "11434:11434"
     volumes:

@@ -3,11 +3,52 @@
 # It takes a fuzzy request from the LLM and turns it into a
 # strict function call to the compiled Rust binary.
 
+import lancedb
+from fastembed import TextEmbedding
 import json
 import ast
 from typing import Union, List, Dict, Any
 from langchain_core.tools import tool
 import mtg_logic_core  # <--- This is the compiled Rust code!
+
+# Initialize the models outside the function so they stay hot in memory
+print("[DEBUG] 📚 Loading FastEmbed Model and LanceDB...")
+embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
+db = lancedb.connect("/app/data/lancedb") # Maps to the Docker volume mount
+
+@tool
+def fetch_card(card_name: str) -> dict:
+    """
+    Fetches the exact Oracle text, type line, and mana cost of a Magic: The Gathering card.
+    ALWAYS use this tool before casting a spell to ensure you have the correct data.
+    
+    Args:
+        card_name: The name of the card to look up (e.g., "Grizzly Bears").
+    """
+    try:
+        print(f"\n[DEBUG] 🔍 Semantic Search triggered for: '{card_name}'")
+        table = db.open_table("cards")
+        
+        # Embed the query
+        query_vector = list(embed_model.embed([card_name]))[0]
+        
+        # Perform the Vector Search
+        results = table.search(query_vector).limit(1).to_list()
+        
+        if results:
+            card = results[0]
+            # Strip out the massive vector array to save LLM context window limits
+            return {
+                "name": card["name"],
+                "type_line": card["type_line"],
+                "mana_cost": card["mana_cost"],
+                "oracle_text": card["oracle_text"]
+            }
+        
+        return {"status": "error", "message": f"Could not find card matching '{card_name}'"}
+    
+    except Exception as e:
+        return {"status": "error", "message": f"Database search failed: {str(e)}"}
 
 @tool
 def validate_move(

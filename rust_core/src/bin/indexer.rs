@@ -17,6 +17,8 @@ struct CardJson {
     name: String,
     oracle_text: String,
     type_line: String,
+    #[serde(default)]
+    mana_cost: String,
 }
 
 #[tokio::main]
@@ -32,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Connect to LanceDB
     // 0.22+ uses 'execute()' pattern for connections
-    let uri = env::var("LANCEDB_URI").unwrap_or_else(|_| "/app/data/lancedb".to_string());
+    let uri = env::var("LANCEDB_URI").unwrap_or_else(|_| "./data/lancedb".to_string());
     let db = connect(&uri).execute().await?;
     
     // 3. Read Data
@@ -43,6 +45,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut names = Vec::new();
     let mut texts = Vec::new(); // For display
     let mut types = Vec::new();
+    let mut mana_costs = Vec::new();
     let mut embeddings = Vec::new();
 
     let mut count = 0;
@@ -57,6 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             names.push(card.name.clone());
             texts.push(card.oracle_text.clone());
             types.push(card.type_line.clone());
+            mana_costs.push(card.mana_cost.clone());
 
             // Combine fields for richer semantic search
             let combined_text = format!("{} - {} \n {}", card.name, card.type_line, card.oracle_text);
@@ -83,6 +87,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Field::new("name", DataType::Utf8, false),
         Field::new("type_line", DataType::Utf8, false),
         Field::new("oracle_text", DataType::Utf8, false),
+        Field::new("mana_cost", DataType::Utf8, false),
         Field::new("vector", DataType::FixedSizeList(
             Arc::new(Field::new("item", DataType::Float32, true)),
             384 // Dimension size for MiniLM
@@ -100,6 +105,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(StringArray::from(names)),
             Arc::new(StringArray::from(types)),
             Arc::new(StringArray::from(texts)),
+            Arc::new(StringArray::from(mana_costs)),
             Arc::new(FixedSizeListArray::from_iter_primitive::<Float32Type, _, _>(
                 // We reconstruct the list array from the flattened data
                 (0..total_rows).map(|i| {

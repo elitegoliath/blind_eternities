@@ -10,7 +10,7 @@ from langgraph.prebuilt import ToolNode
 
 # Import local modules
 from python_agent.llm_engine import get_llm, SYSTEM_PROMPT
-from python_agent.tools import validate_move, resolve_stack
+from python_agent.tools import validate_move, resolve_stack, fetch_card
 
 load_dotenv()
 
@@ -32,9 +32,10 @@ def main():
     #         description="Checks Magic: The Gathering rule legality. Input: JSON string."
     #     )
     # ]
-    tools = [validate_move, resolve_stack]
+    tools = [validate_move, resolve_stack, fetch_card]
     llm = get_llm()
     llm_with_tools = llm.bind_tools(tools)
+    tool_node = ToolNode(tools)
 
     # --- 3. Define Nodes (The Logic) ---
     

@@ -28,6 +28,7 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13.4", features = ["json", "stream"] }
 futures-util = "0.3" # For handling streams
 bytes = "1.5"
+flate2 = "1.0"
 
 # --- Vector Search Stack ---
 lancedb = "0.30.0"

@@ -1,6 +1,9 @@
 {
   "name": "Blind Eternities (Rust + Python)",
   "image": "mcr.microsoft.com/devcontainers/python:3.11",
+  "remoteEnv": {
+    "LANCEDB_URI": "./data/lancedb"
+  },
   "features": {
     // 1. Install the Rust toolchain (Cargo, rustc)
     "ghcr.io/devcontainers/features/rust:1": {

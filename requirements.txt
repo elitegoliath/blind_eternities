@@ -19,3 +19,7 @@ streamlit>=1.52.1
 # --- Dev Tools ---
 pytest>=7.0.0
 ruff>=0.1.0
+
+# --- RAG / Vector Search ---
+lancedb>=0.11.0
+fastembed>=0.3.0
