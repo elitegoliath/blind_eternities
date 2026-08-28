@@ -6,10 +6,8 @@
 # instead of digging into submodules.
 
 # Expose the specific functions meant to be public
-# from .tools import validate_move, search_rules
-from .tools import validate_move
-from .llm_engine import get_llm, SYSTEM_PROMPT
+from .tools import fetch_card, play_card
 
 # Define what happens on 'from python_agent import *'
 # __all__ = ["validate_move", "search_rules", "get_llm", "SYSTEM_PROMPT"]
-__all__ = ["validate_move", "get_llm", "SYSTEM_PROMPT"]
+__all__ = ["fetch_card", "play_card"]

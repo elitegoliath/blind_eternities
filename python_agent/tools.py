@@ -7,14 +7,185 @@ import lancedb
 from fastembed import TextEmbedding
 import json
 import ast
-from typing import Union, List, Dict, Any
+from typing import Any, Optional
 from langchain_core.tools import tool
-import mtg_logic_core  # <--- This is the compiled Rust code!
+import mtg_logic_core  # type: ignore # <--- This is the compiled Rust code!
 
 # Initialize the models outside the function so they stay hot in memory
 print("[DEBUG] 📚 Loading FastEmbed Model and LanceDB...")
 embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
-db = lancedb.connect("/app/data/lancedb") # Maps to the Docker volume mount
+db = lancedb.connect("/app/data/lancedb")  # Maps to the Docker volume mount
+
+
+def _lookup_card_direct(card_name: str) -> Optional[dict]:
+    """Helper to query LanceDB directly for fallback resolution."""
+    try:
+        table = db.open_table("cards")
+        query_vector = list(embed_model.embed([card_name]))[0]
+        results = table.search(query_vector).limit(1).to_list()
+        if results:
+            card = results[0]
+            # Ensure type_line is a list
+            raw_type = card.get("type_line", "")
+            type_list = raw_type.split() if isinstance(raw_type, str) else raw_type
+            return {
+                "name": card.get("name", card_name),
+                "type_line": type_list,
+                "mana_cost": card.get("mana_cost", ""),
+                "oracle_text": card.get("oracle_text", "")
+            }
+    except Exception as e:
+        print(f"[DEBUG] ⚠️ Fallback card lookup failed: {e}")
+    return None
+
+
+def _normalize_permanent(item: Any) -> dict:
+    """Ensures each battlefield entry matches Rust's expected Permanent schema."""
+    if isinstance(item, str):
+        return {
+            "id": f"perm-{hash(item) % 10000}",
+            "name": item,
+            "controller": "Opponent",
+            "power": 0,
+            "toughness": 1,
+            "card": {
+                "name": item,
+                "type_line": ["Creature"],
+                "mana_cost": "",
+                "oracle_text": ""
+            },
+            "damage_marked": 0
+        }
+    
+    if isinstance(item, dict):
+        if "card" in item and isinstance(item["card"], dict):
+            return item
+        
+        name = item.get("name", "Unknown")
+        
+        # Catch LLM using "types" instead of "type_line"
+        type_line = item.get("type_line") or item.get("types") or ["Creature"]
+        if isinstance(type_line, str):
+            type_line = [type_line]
+            
+        return {
+            "id": str(item.get("id", f"perm-{hash(name) % 10000}")),
+            "name": name,
+            "controller": item.get("controller", "Opponent"),
+            "damage_marked": int(item.get("damage_marked") or 0),
+            "power": int(item.get("power") or 0),
+            "toughness": int(item.get("toughness") or 1),
+            "card": {
+                "name": name,
+                "type_line": type_line,
+                "mana_cost": item.get("mana_cost", ""),
+                "oracle_text": item.get("oracle_text", "")
+            }
+        }
+    return item
+
+
+def _normalize_stack_item(item: Any) -> dict:
+    """Ensures each stack entry matches Rust's expected StackObject schema."""
+    if isinstance(item, str):
+        return {
+            "id": f"spell-{hash(item) % 10000}",
+            "controller": "Player",
+            "targets": [],
+            "card": {
+                "name": item,
+                "type_line": ["Instant"],
+                "effects": []
+            }
+        }
+    
+    if isinstance(item, dict):
+        if "card" in item and isinstance(item["card"], dict):
+            return item
+        
+        name = item.get("name", "Unknown")
+        type_line = item.get("type_line", ["Instant"])
+        if isinstance(type_line, str):
+            type_line = [type_line]
+            
+        return {
+            "id": str(item.get("id", f"spell-{hash(name) % 10000}")),
+            "controller": item.get("controller", "Player"),
+            "targets": item.get("targets", []),
+            "card": {
+                "name": name,
+                "type_line": type_line,
+                "effects": item.get("effects", [])
+            }
+        }
+    return item
+
+
+def _normalize_mana_pool(raw_pool: Any) -> dict:
+    """Translates loose LLM mana dictionaries into strict Rust struct formatting."""
+    # Baseline pool using exact Rust field names
+    normalized = {
+        "white": 0, 
+        "blue": 0, 
+        "black": 0, 
+        "red": 0, 
+        "green": 0, 
+        "colorless": 0
+    }
+    
+    # Catch stringified dicts
+    if isinstance(raw_pool, str):
+        try:
+            raw_pool = json.loads(raw_pool.replace("'", '"'))
+        except (ValueError, SyntaxError):
+            pass
+
+    if not isinstance(raw_pool, dict):
+        return normalized
+        
+    # Map EVERYTHING to the full Rust struct field names
+    color_map = {
+        "w": "white", "white": "white", 
+        "u": "blue",  "blue": "blue", 
+        "b": "black", "black": "black", 
+        "r": "red",   "red": "red", 
+        "g": "green", "green": "green", 
+        "c": "colorless", "colorless": "colorless"
+    }
+    
+    for key, value in raw_pool.items():
+        standard_key = color_map.get(str(key).lower().strip())
+        if standard_key in normalized:
+            try:
+                # Use += to aggregate if LLM splits mana weirdly
+                normalized[standard_key] += int(value) 
+            except (ValueError, TypeError):
+                continue 
+                
+    return normalized
+
+
+def _clean_json_param(param: Any) -> list:
+    """Helper to safely parse stringified lists/JSON from LLMs."""
+    if param is None:
+        return []
+    if isinstance(param, list):
+        return param
+    if isinstance(param, str):
+        trimmed = param.strip()
+        if not trimmed:
+            return []
+        try:
+            parsed = json.loads(trimmed)
+            return parsed if isinstance(parsed, list) else [parsed]
+        except json.JSONDecodeError:
+            try:
+                parsed = ast.literal_eval(trimmed)
+                return parsed if isinstance(parsed, list) else [parsed]
+            except (ValueError, SyntaxError):
+                return [trimmed]
+    return []
+
 
 @tool
 def fetch_card(card_name: str) -> dict:
@@ -23,21 +194,17 @@ def fetch_card(card_name: str) -> dict:
     ALWAYS use this tool before casting a spell to ensure you have the correct data.
     
     Args:
-        card_name: The name of the card to look up (e.g., "Grizzly Bears").
+        card_name: The name of the card to look up (e.g., "Grizzly Bears", "Lightning Bolt").
     """
     try:
         print(f"\n[DEBUG] 🔍 Semantic Search triggered for: '{card_name}'")
         table = db.open_table("cards")
         
-        # Embed the query
         query_vector = list(embed_model.embed([card_name]))[0]
-        
-        # Perform the Vector Search
         results = table.search(query_vector).limit(1).to_list()
         
         if results:
             card = results[0]
-            # Strip out the massive vector array to save LLM context window limits
             return {
                 "name": card["name"],
                 "type_line": card["type_line"],
@@ -50,131 +217,93 @@ def fetch_card(card_name: str) -> dict:
     except Exception as e:
         return {"status": "error", "message": f"Database search failed: {str(e)}"}
 
+
 @tool
 def validate_move(
     card_name: str,
     action_type: str = "CastSpell",
-    type_line: Union[str, List[str]] = None,
+    type_line: str = "[]",
     mana_cost: str = "",
-    board_state: Union[str, List[Dict[str, Any]]] = None,
-    mana_pool: dict = None,
-    stack: Union[str, List[str]] = None,
-    lands_played: int = 0
+    board_state: str = "[]",
+    mana_pool: str = "{}",
+    stack: str = "[]",
+    lands_played: int = 0,
+    targets: str = "[]"
 ) -> dict:
     """
     Validates a Magic: The Gathering move by checking the board state against the Comprehensive Rules.
     
     Args:
-        card_name: The name of the card being played or activated.
-        action_type: The type of action being taken. Must be one of: "CastSpell", "PlayLand", "ActivateAbility".
-        type_line: A list of card types and supertypes. Examples: ["Creature"], ["Legendary", "Creature"], ["Basic", "Land"]. Valid base types include Artifact, Creature, Enchantment, Instant, Land, Planeswalker, Sorcery.
-        mana_cost: The mana cost of the card. MUST be exactly "" (empty string) for Lands.
-        board_state: board_state: A list of JSON objects representing cards currently on the battlefield. Each object MUST include a "name", "type_line", and a unique "id" (e.g., "bear-1").
-        mana_pool: A dictionary of available mana. ONLY include the exact mana explicitly provided by the user.
-        stack: A list of JSON objects representing spells on the stack. Each object MUST include "id", "card" (with name and type_line), and "targets". 
-        lands_played: The number of lands the player has already played this turn. Default is 0.
-        targets: A list of JSON target objects for the pending action. Examples:
-                [{"type": "Permanent", "id": "bear-1"}]
-                [{"type": "Player", "id": "Opponent"}]
-                [{"type": "StackObject", "id": "spell-1"}]
+        card_name: The name of the card being played.
+        action_type: The type of action ("CastSpell", "PlayLand", "ActivateAbility").
+        type_line: A stringified list of card types (e.g., '["Instant"]', '["Creature"]').
+        mana_cost: Mana cost string (e.g. "{R}"). Empty string for lands.
+        
+        # THE FIX: Explicitly require the ID mapping in the docstring
+        board_state: A stringified list of JSON objects representing permanents. MUST include 'id' and 'name'. Example: '[{"id": "bear-1", "name": "Grizzly Bears"}]'. The 'id' MUST match the 'id' used in targets.
+        
+        mana_pool: A stringified dict of available mana. Example: '{"U": 4}' or '{"red": 1}'.
+        stack: A stringified list of spells currently waiting to resolve.
+        lands_played: Number of lands played this turn (default 0).
+        targets: A stringified list of target objects. Example: '[{"type": "Permanent", "id": "bear-1"}]'.
     """
+    print(f"\n[DEBUG] 🛠️ The Agent is checking move: {card_name} (Cost: {mana_cost})")
     
-    print(f"\n[DEBUG] 🛠️  The Agent is checking move: {card_name} (Cost: {mana_cost})")
-    
-    # Clean up optional parameters
-    if board_state is None:
-        board_state = []
-    if mana_pool is None:
-        mana_pool = {}
-    if stack is None:
-        stack = []
-    if type_line is None:
-        type_line = ["Unknown"]
+    # Run the string inputs through our robust JSON cleaners
+    parsed_type_line = _clean_json_param(type_line)
+    if not parsed_type_line:
+        parsed_type_line = ["Unknown"]
+        
+    # Auto-fill missing card data if LLM skipped fetch_card
+    if not mana_cost or parsed_type_line == ["Unknown"]:
+        cached = _lookup_card_direct(card_name)
+        if cached:
+            if not mana_cost:
+                mana_cost = cached["mana_cost"]
+            if parsed_type_line == ["Unknown"]:
+                parsed_type_line = cached["type_line"]
 
-    # Defensively clean up type_line if passed as a string
-    if isinstance(type_line, str):
-        try:
-            parsed = json.loads(type_line.replace("'", '"'))
-            type_line = parsed if isinstance(parsed, list) else [type_line]
-        except json.JSONDecodeError:
-            type_line = [type_line]
+    clean_mana_pool = _normalize_mana_pool(mana_pool)
 
-    # Defensively clean up board_state if the LLM passed it as a string
-    if isinstance(board_state, str):
-        # Handle empty string cases
-        if not board_state.strip():
-            board_state = []
-        else:
-            try:
-                # json.loads handles proper JSON strings
-                board_state = json.loads(board_state)
-            except json.JSONDecodeError:
-                try:
-                    # ast.literal_eval handles strings using Python-style single quotes
-                    board_state - ast.literal_eval(board_state)
-                except (ValueError, SyntaxError):
-                    return {
-                        "status": "error",
-                        "message": "board_state must be a valid JSON array."
-                    }
+    raw_board = _clean_json_param(board_state)
+    normalized_board = [_normalize_permanent(item) for item in raw_board]
 
-    # Double check that board state is a list
-    if not isinstance(board_state, list):
-        return {
-            "status": "error",
-            "message": "board_state must resolve to a list."
-        }
+    raw_stack = _clean_json_param(stack)
+    normalized_stack = [_normalize_stack_item(item) for item in raw_stack]
 
-    # Clean up stack strings
-    if isinstance(stack, str):
-        if not stack.strip():
-            stack = []
-        else:
-            try:
-                stack = json.loads(stack)
-            except json.JSONDecodeError:
-                try:
-                    stack = ast.literal_eval(stack)
-                except (ValueError, SyntaxError):
-                    stack = [stack] # Treat raw string as a single spell name
+    parsed_targets = _clean_json_param(targets)
+    if isinstance(parsed_targets, list):
+        for t in parsed_targets:
+            if isinstance(t, dict) and "type" not in t:
+                t["type"] = "Permanent"
 
-    # Double check that board state is a list
-    if not isinstance(stack, list):
-        return {"status": "error", "message": "stack must resolve to a list."}    
-
-    # Construct the STRICT GameState payload for Rust
-    # Build the exact structural scaffolding that models.rs expects
     game_state_payload = {
         "active_player": "Player",
         "is_active_player": True,
-        "phase": "Main Phase 1", # Must match the #[serde(rename)] in Rust exactly
-        "battlefield": board_state,
-        "stack": stack,
+        "phase": "Main Phase 1",
+        "battlefield": normalized_board,
+        "stack": normalized_stack,
         "lands_played": lands_played,
-        "mana_pool": mana_pool,
+        "mana_pool": clean_mana_pool,
         "pending_action": {
             "type": action_type,
             "payload": {
-                "name": card_name,
-                "type_line": type_line,
-                "mana_cost": mana_cost
+                "card": {
+                    "name": card_name,
+                    "type_line": parsed_type_line,
+                    "mana_cost": mana_cost,
+                    "oracle_text": "" 
+                },
+                "targets": parsed_targets
             }
         }
     }
     
-    # Call the Rust "Judge"
     try:
-        # returns string like "Legal" or "StateBasedAction: Legend Rule"
-        # Rust returns a serialized JSON string, e.g., '[{"status":"Legal"}]'
-        ruling_raw_string = mtg_logic_core.check_board_state(json.dumps(game_state_payload)) 
-        
-        # Unpack the inner JSON string into a native Python list/dict
-        # to eliminate the escaped backslashes seen in the AI response in the CLI.
-        
+        ruling_raw_string = mtg_logic_core.check_board_state(json.dumps(game_state_payload))
         try:
             ruling_parsed = json.loads(ruling_raw_string)
         except json.JSONDecodeError:
-            # Fallback just in case Rust ever returns a plain un-serialized string
             ruling_parsed = ruling_raw_string
 
         return {
@@ -184,108 +313,136 @@ def validate_move(
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+
 @tool
 def resolve_stack(
-    board_state: Union[str, List[Dict[str, Any]]] = None, 
-    stack: Union[str, List[Dict[str, Any]]] = None
+    card_name: str,
+    board_state: str = "[]", 
+    targets: str = "[]",
+    # --- DUMMY PARAMS TO ABSORB LLM HALLUCINATIONS ---
+    action_type: str = "",
+    mana_cost: str = "",
+    mana_pool: str = "",
+    stack: str = ""
 ) -> dict:
     """
-    Resolves the top spell or ability on the stack (LIFO order).
-    Call this when all players pass priority and the stack is not empty.
+    Resolves the top spell or ability on the stack and applies State-Based Actions.
     
-    IMPORTANT: Format your JSON exactly like this example:
-    
-    board_state example:
-    [
-      {
-        "id": "bear-1", 
-        "name": "Grizzly Bears", 
-        "controller": "Opponent", 
-        "type_line": ["Creature"], 
-        "power": 2, 
-        "toughness": 2, 
-        "damage_marked": 0, 
-        "oracle_text": ""
-      }
-    ]
-    
-    stack example:
-    [
-      {
-        "id": "bolt-1", 
-        "controller": "Player", 
-        "targets": [{"type": "Permanent", "id": "bear-1"}], 
-        "card": {
-          "name": "Lightning Bolt", 
-          "type_line": ["Instant"], 
-          "effects": [{"type": "DealDamage", "amount": 3}]
-        }
-      }
-    ]
+    Args:
+        card_name: The name of the spell resolving (e.g., "Lightning Bolt").
+        board_state: A stringified list of permanents on the battlefield.
+        targets: A stringified list of target objects for the spell.
+        action_type: (Optional) Ignored by engine.
+        mana_cost: (Optional) Ignored by engine.
+        mana_pool: (Optional) Ignored by engine.
+        stack: (Optional) Ignored by engine.
     """
-    
-    print("\n[DEBUG] 🛠️  The Agent is resolving the top of the stack.")
-    
-    # 1. Initialize defaults
-    if board_state is None:
-        board_state = []
-    if stack is None:
-        stack = []
+    print("\n[DEBUG] 🛠️ The Agent is resolving the top of the stack.")
 
-    # 2. Defensively clean up board_state
-    if isinstance(board_state, str):
-        if not board_state.strip():
-            board_state = []
-        else:
-            try:
-                board_state = json.loads(board_state)
-            except json.JSONDecodeError:
-                try:
-                    board_state = ast.literal_eval(board_state)
-                except (ValueError, SyntaxError):
-                    return {"status": "error", "message": "board_state must be a valid JSON array."}
+    # Normalize data passed in.
+    raw_board = _clean_json_param(board_state)
+    normalized_board = [_normalize_permanent(item) for item in raw_board]
 
-    # 3. Defensively clean up stack
-    if isinstance(stack, str):
-        if not stack.strip():
-            stack = []
-        else:
-            try:
-                stack = json.loads(stack)
-            except json.JSONDecodeError:
-                try:
-                    stack = ast.literal_eval(stack)
-                except (ValueError, SyntaxError):
-                    return {"status": "error", "message": "stack must be a valid JSON array."}
+    parsed_targets = _clean_json_param(targets)
+    if isinstance(parsed_targets, list):
+        for t in parsed_targets:
+            if isinstance(t, dict) and "type" not in t:
+                t["type"] = "Permanent"
 
-    if not isinstance(board_state, list):
-        return {"status": "error", "message": "board_state must resolve to a list."}
-    if not isinstance(stack, list):
-        return {"status": "error", "message": "stack must resolve to a list."}
-    
-    # 4. Construct the GameState payload
+    # Fetch cached type_line if available
+    cached = _lookup_card_direct(card_name)
+    type_line = cached["type_line"] if cached else ["Instant"]
+
+    constructed_stack = [{
+        "id": f"spell-{hash(card_name) % 10000}",
+        "controller": "Player",
+        "targets": parsed_targets,
+        "card": {
+            "name": card_name,
+            "type_line": type_line,
+            "effects": [{"type": "DealDamage", "amount": 3}] 
+        }
+    }]
+
     game_state_payload = {
         "active_player": "Player",
         "is_active_player": True,
-        "phase": "Main Phase 1", 
-        "battlefield": board_state,
-        "stack": stack, 
+        "phase": "Main Phase 1",
+        "battlefield": normalized_board,
+        "stack": constructed_stack,
         "lands_played": 0,
-        "mana_pool": {},
+        "mana_pool": {"w": 0, "u": 0, "b": 0, "r": 0, "g": 0, "c": 0},
         "pending_action": None 
     }
     
-    # 5. Call the Rust Engine
     try:
-        ruling_raw_str = mtg_logic_core.resolve_stack_top(json.dumps(game_state_payload)) 
-        
+        ruling_raw_str = mtg_logic_core.resolve_stack_top(json.dumps(game_state_payload))
         try:
             ruling_parsed = json.loads(ruling_raw_str)
         except json.JSONDecodeError:
             ruling_parsed = ruling_raw_str
             
-        return ruling_parsed
+        return {
+            "status": "success",
+            "ruling": ruling_parsed
+        }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# Note: We don't define search_rules yet, but can be added here later with @tool
+
+@tool
+def play_card(
+    card_name: str,
+    action_type: str = "CastSpell",
+    type_line: str = "[]",
+    mana_cost: str = "",
+    board_state: str = "[]",
+    mana_pool: str = "{}",
+    stack: str = "[]",
+    lands_played: int = 0,
+    targets: str = "[]"
+) -> dict:
+    """
+    Validates AND resolves a Magic: The Gathering move in one step.
+    Use this instead of calling validate_move and resolve_stack separately.
+    
+    Args:
+        card_name: The name of the card being played.
+        action_type: The type of action ("CastSpell", "PlayLand", "ActivateAbility").
+        type_line: A stringified list of card types (e.g., '["Instant"]').
+        mana_cost: Mana cost string (e.g. "{R}"). Empty string for lands.
+        board_state: Stringified JSON list of permanents. MUST include 'id' and 'name'.
+        mana_pool: Stringified dict of available mana. Example: '{"red": 1}'.
+        stack: Stringified list of spells on the stack.
+        lands_played: Number of lands played this turn (default 0).
+        targets: Stringified list of target objects matching the board_state IDs.
+    """
+    print(f"\n[DEBUG] 🛠️ Macro Tool executing for: {card_name}")
+    
+    # Step 1: Validate
+    validation_result = validate_move.invoke({
+        "card_name": card_name, "action_type": action_type, "type_line": type_line,
+        "mana_cost": mana_cost, "board_state": board_state, "mana_pool": mana_pool,
+        "stack": stack, "lands_played": lands_played, "targets": targets
+    })
+    
+    # If illegal, stop immediately and return the ruling to the LLM
+    if validation_result.get("status") == "error":
+        return validation_result
+        
+    rulings = validation_result.get("ruling", [])
+    if any(isinstance(r, dict) and r.get("status") == "illegal" for r in rulings):
+        return {"status": "illegal", "details": rulings}
+        
+    # Step 2: Resolve (since it is legal)
+    resolve_result = resolve_stack.invoke({
+        "card_name": card_name,
+        "board_state": board_state,
+        "targets": targets
+    })
+    
+    return {
+        "status": "success",
+        "validation": "Legal",
+        "resolution": resolve_result.get("ruling", "Unknown resolution")
+    }

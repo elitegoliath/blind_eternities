@@ -12,24 +12,12 @@ import os
 from functools import lru_cache
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from pathlib import Path
 
 # --- The Persona ---
 # This is where we prompt-engineer the "Judge" behavior.
-SYSTEM_PROMPT = """
-You are the Blind Eternities Magic: The Gathering Rules Engine Agent.
-
-CRITICAL OPERATIONAL RULES:
-1. TOOL CALLING REQUIRED: Whenever assessing game state, timing, or stack resolution, you MUST invoke the appropriate tool (`validate_move` or `resolve_stack`).
-2. CARD FETCHING MANDATORY: You do not have MTG card text memorized. Before you place any card onto the stack or battlefield in your JSON, you MUST use the `fetch_card` tool to retrieve its exact oracle text and typing.
-3. IMPLIED MANA: If the player does not specify a mana pool, assume they have the exact mana required to cast the spell.
-4. NO GUESSING CARD TEXT: Whenever a user mentions casting a spell or asks what a card does, you MUST call the `fetch_card` tool first to retrieve the exact oracle text and typing. Do not rely on your training data for card effects.
-
-TOOL ARGUMENT SCHEMAS:
-When calling `resolve_stack` or `validate_move`:
-- `board_state`: Array of permanent objects. Each permanent must have: `id` (e.g. "bear-1"), `name`, `controller` ("Player" or "Opponent"), `type_line` (list of strings, e.g. ["Creature"]), `power` (int), `toughness` (int), `damage_marked` (int), and `oracle_text` (str).
-- `stack`: Array of stack objects. Each object must have: `id` (e.g. "bolt-1"), `controller` ("Player" or "Opponent"), `targets` (list of target dicts like [{"type": "Permanent", "id": "bear-1"}]), and `card` (dict with `name`, `type_line`, and `effects`).
-- `effects`: Currently only supports `[{"type": "DealDamage", "amount": 3}]`.
-"""
+prompt_path = Path(__file__).parent / "system_prompt.md"
+SYSTEM_PROMPT = prompt_path.read_text(encoding="utf-8")
 
 @lru_cache(maxsize=1)
 def get_llm(temperature: float = 0.0) -> ChatOpenAI:
