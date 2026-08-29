@@ -308,3 +308,40 @@ pub struct GameState {
     #[serde(default)] // Fallback to defaults if Python omits it
     pub rules_config: RulesConfig,
 }
+
+impl GameState {
+    /// Sweeps the board for State-Based Actions. 
+    /// Returns true if any actions were taken (meaning we need to loop and check again).
+    pub fn check_state_based_actions(&mut self) -> bool {
+        let original_count = self.battlefield.len();
+        
+        // `retain` keeps only the elements where the closure returns true.
+        // If it returns false, the permanent is destroyed/put into the graveyard.
+        self.battlefield.retain(|permanent| {
+            // Since toughness is i32, we can safely check if it is 0 or less.
+            let zero_or_less_toughness = permanent.toughness <= 0;
+
+            // We need to cast damage_marked to i32 for the comparison.
+            let lethal_damage = (permanent.damage_marked as i32) >= permanent.toughness;
+            
+            if lethal_damage || zero_or_less_toughness {
+                // Return false to drop the permanent from the vector (send to graveyard)
+                return false; 
+            }
+            
+            true // Keep the permanent alive
+        });
+
+        // If the length changed, an SBA occurred.
+        self.battlefield.len() < original_count
+    }
+
+    /// The MTG Rules dictate that SBAs loop until the board is completely clean.
+    pub fn run_sba_loop(&mut self) {
+        while self.check_state_based_actions() {
+            // Loop runs until check_state_based_actions() returns false.
+            // This handles domino effects (e.g., an anthem creature dies, 
+            // lowering toughness of other creatures, causing them to die on the next pass).
+        }
+    }
+}

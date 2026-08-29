@@ -198,6 +198,7 @@ fn resolve_stack_top(json_payload: String) -> PyResult<String> {
 
     match Judge::resolve_top(&mut state) {
         Ok(resolution_msg) => {
+            state.run_sba_loop();
             Ok(json!({ 
                 "status": "success", 
                 "message": resolution_msg,
