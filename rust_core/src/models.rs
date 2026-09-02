@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type")]
 pub enum Effect {
     DealDamage { amount: u32 },
-    // Future effects go here: DrawCards { amount: u32 }, GainLife { amount: u32 }, etc.
+    Destroy, // No extra fields needed, it just targets
+    DrawCards { amount: u32 },
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]

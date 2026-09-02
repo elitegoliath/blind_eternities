@@ -3,6 +3,7 @@
 # It takes a fuzzy request from the LLM and turns it into a
 # strict function call to the compiled Rust binary.
 
+import re
 import lancedb
 from fastembed import TextEmbedding
 import json
@@ -16,6 +17,46 @@ print("[DEBUG] 📚 Loading FastEmbed Model and LanceDB...")
 embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 db = lancedb.connect("/app/data/lancedb")  # Maps to the Docker volume mount
 
+def _parse_oracle_to_effects(oracle_text: str) -> list:
+    """
+    Scans MTG Oracle text and deterministically maps it to Rust Effect Enums.
+    """
+    effects = []
+    if not oracle_text:
+        return effects
+
+    # 1. Deal Damage (e.g., "deals 3 damage")
+    damage_match = re.search(r'deals? (\d+) damage', oracle_text, re.IGNORECASE)
+    if damage_match:
+        effects.append({
+            "type": "DealDamage", 
+            "amount": int(damage_match.group(1))
+        })
+        
+    # 2. Destroy (e.g., "Destroy target creature")
+    if re.search(r'destroy target', oracle_text, re.IGNORECASE):
+        effects.append({
+            "type": "Destroy"
+        })
+        
+    # 3. Draw Cards (e.g., "draw a card", "draw two cards", "draw 3 cards")
+    draw_match = re.search(r'draw (\w+|\d+) cards?', oracle_text, re.IGNORECASE)
+    if draw_match:
+        amount_str = draw_match.group(1).lower()
+        amount_map = {"a": 1, "one": 1, "two": 2, "three": 3, "four": 4}
+        amount = amount_map.get(amount_str)
+        
+        # Fallback if the text literally says a digit like "draw 3 cards"
+        if not amount and amount_str.isdigit():
+            amount = int(amount_str)
+            
+        if amount:
+            effects.append({
+                "type": "DrawCards", 
+                "amount": amount
+            })
+
+    return effects
 
 def _lookup_card_direct(card_name: str) -> Optional[dict]:
     """Helper to query LanceDB directly for fallback resolution."""
@@ -222,8 +263,6 @@ def fetch_card(card_name: str) -> dict:
 def validate_move(
     card_name: str,
     action_type: str = "CastSpell",
-    type_line: str = "[]",
-    mana_cost: str = "",
     board_state: str = "[]",
     mana_pool: str = "{}",
     stack: str = "[]",
@@ -236,47 +275,36 @@ def validate_move(
     Args:
         card_name: The name of the card being played.
         action_type: The type of action ("CastSpell", "PlayLand", "ActivateAbility").
-        type_line: A stringified list of card types (e.g., '["Instant"]', '["Creature"]').
-        mana_cost: Mana cost string (e.g. "{R}"). Empty string for lands.
-        
-        # THE FIX: Explicitly require the ID mapping in the docstring
         board_state: A stringified list of JSON objects representing permanents. MUST include 'id' and 'name'. Example: '[{"id": "bear-1", "name": "Grizzly Bears"}]'. The 'id' MUST match the 'id' used in targets.
-        
-        mana_pool: A stringified dict of available mana. Example: '{"U": 4}' or '{"red": 1}'.
+        mana_pool: A stringified dict of available mana. Example: '{"U": 4}' or '{"blue": 3}'.
         stack: A stringified list of spells currently waiting to resolve.
         lands_played: Number of lands played this turn (default 0).
-        targets: A stringified list of target objects. Example: '[{"type": "Permanent", "id": "bear-1"}]'.
+        targets: A stringified list of target objects. Example: '[{"type": "Permanent", "id": "bear-1"}]'. For spells that don't target (like Divination), use '[]'.
     """
-    print(f"\n[DEBUG] 🛠️ The Agent is checking move: {card_name} (Cost: {mana_cost})")
+    print(f"\n[DEBUG] 🛠️ The Agent is checking move: {card_name}")
     
-    # Run the string inputs through our robust JSON cleaners
-    parsed_type_line = _clean_json_param(type_line)
-    if not parsed_type_line:
-        parsed_type_line = ["Unknown"]
-        
-    # Auto-fill missing card data if LLM skipped fetch_card
-    if not mana_cost or parsed_type_line == ["Unknown"]:
-        cached = _lookup_card_direct(card_name)
-        if cached:
-            if not mana_cost:
-                mana_cost = cached["mana_cost"]
-            if parsed_type_line == ["Unknown"]:
-                parsed_type_line = cached["type_line"]
+    # 1. AUTONOMOUS LOOKUP: Python fetches absolute truth directly from the database
+    cached = _lookup_card_direct(card_name)
+    mana_cost = cached.get("mana_cost", "{0}") if cached else "{0}"
+    parsed_type_line = cached.get("type_line", ["Unknown"]) if cached else ["Unknown"]
 
+    print(f"[DEBUG] 🛠️ True stats found - Cost: {mana_cost}, Type: {parsed_type_line}")
+
+    # 2. Normalize standard inputs
     clean_mana_pool = _normalize_mana_pool(mana_pool)
-
     raw_board = _clean_json_param(board_state)
     normalized_board = [_normalize_permanent(item) for item in raw_board]
-
     raw_stack = _clean_json_param(stack)
     normalized_stack = [_normalize_stack_item(item) for item in raw_stack]
 
+    # 3. Parse targets with safety loop
     parsed_targets = _clean_json_param(targets)
     if isinstance(parsed_targets, list):
         for t in parsed_targets:
             if isinstance(t, dict) and "type" not in t:
                 t["type"] = "Permanent"
 
+    # 4. Build strict Rust payload
     game_state_payload = {
         "active_player": "Player",
         "is_active_player": True,
@@ -292,7 +320,7 @@ def validate_move(
                     "name": card_name,
                     "type_line": parsed_type_line,
                     "mana_cost": mana_cost,
-                    "oracle_text": "" 
+                    "oracle_text": cached.get("oracle_text", "") if cached else ""
                 },
                 "targets": parsed_targets
             }
@@ -351,7 +379,12 @@ def resolve_stack(
 
     # Fetch cached type_line if available
     cached = _lookup_card_direct(card_name)
-    type_line = cached["type_line"] if cached else ["Instant"]
+    type_line = cached.get("type_line", ["Unknown"]) if cached else ["Unknown"]
+    oracle_text = cached.get("oracle_text", "") if cached else ""
+    mana_cost = cached.get("mana_cost", "{0}") if cached else "{0}"
+
+    # DYNAMICALLY PARSE THE EFFECTS!
+    parsed_effects = _parse_oracle_to_effects(oracle_text)
 
     constructed_stack = [{
         "id": f"spell-{hash(card_name) % 10000}",
@@ -360,7 +393,9 @@ def resolve_stack(
         "card": {
             "name": card_name,
             "type_line": type_line,
-            "effects": [{"type": "DealDamage", "amount": 3}] 
+            "mana_cost": mana_cost,
+            "oracle_text": oracle_text,
+            "effects": parsed_effects
         }
     }]
 
@@ -394,8 +429,6 @@ def resolve_stack(
 def play_card(
     card_name: str,
     action_type: str = "CastSpell",
-    type_line: str = "[]",
-    mana_cost: str = "",
     board_state: str = "[]",
     mana_pool: str = "{}",
     stack: str = "[]",
@@ -409,24 +442,25 @@ def play_card(
     Args:
         card_name: The name of the card being played.
         action_type: The type of action ("CastSpell", "PlayLand", "ActivateAbility").
-        type_line: A stringified list of card types (e.g., '["Instant"]').
-        mana_cost: Mana cost string (e.g. "{R}"). Empty string for lands.
         board_state: Stringified JSON list of permanents. MUST include 'id' and 'name'.
-        mana_pool: Stringified dict of available mana. Example: '{"red": 1}'.
+        mana_pool: Stringified dict of available mana. Example: '{"blue": 3}'.
         stack: Stringified list of spells on the stack.
         lands_played: Number of lands played this turn (default 0).
-        targets: Stringified list of target objects matching the board_state IDs.
+        targets: Stringified list of target objects matching the board_state IDs. (Use '[]' for no targets).
     """
     print(f"\n[DEBUG] 🛠️ Macro Tool executing for: {card_name}")
     
-    # Step 1: Validate
+    # Step 1: Validate (LLM is no longer allowed to provide cost or type!)
     validation_result = validate_move.invoke({
-        "card_name": card_name, "action_type": action_type, "type_line": type_line,
-        "mana_cost": mana_cost, "board_state": board_state, "mana_pool": mana_pool,
-        "stack": stack, "lands_played": lands_played, "targets": targets
+        "card_name": card_name, 
+        "action_type": action_type,
+        "board_state": board_state, 
+        "mana_pool": mana_pool,
+        "stack": stack, 
+        "lands_played": lands_played, 
+        "targets": targets
     })
     
-    # If illegal, stop immediately and return the ruling to the LLM
     if validation_result.get("status") == "error":
         return validation_result
         

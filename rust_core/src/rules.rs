@@ -4,7 +4,7 @@
 // This file contains pure functions. They take data in and return a verdict.
 // They do not talk to a database or the internet; they just compute "Magic Physics."
 
-use crate::models::{Card, CardType, GameAction, GameState, ManaPool, Permanent, Phase, Ruling};
+use crate::models::{Target, Effect, Card, CardType, GameAction, GameState, ManaPool, Permanent, Phase, Ruling};
 
 pub struct Judge;
 
@@ -139,7 +139,7 @@ impl Judge {
 
         for target in targets {
             match target {
-                crate::models::Target::Permanent(id) => {
+                Target::Permanent(id) => {
                     // Still on the battlefield?
                     if let Some(perm) = state.battlefield.iter().find(|p| p.id == *id) {
                         // Still lacking Shroud/Hexproof?
@@ -152,12 +152,12 @@ impl Judge {
                         }
                     }
                 },
-                crate::models::Target::StackObject(id) => {
+                Target::StackObject(id) => {
                     if state.stack.iter().any(|obj| obj.id == *id) {
                         legal_count += 1;
                     }
                 },
-                crate::models::Target::Player(name) => {
+                Target::Player(name) => {
                     if !Self::player_has_protection(state, name, controller) {
                         legal_count += 1;
                     }
@@ -190,15 +190,42 @@ impl Judge {
             // Instant or Sorcery
             for effect in &top.card.effects {
                 match effect {
-                    crate::models::Effect::DealDamage { amount } => {
+                    Effect::DealDamage { amount } => {
                         for target in &top.targets {
-                            if let crate::models::Target::Permanent(id) = target {
+                            if let Target::Permanent(id) = target {
                                 if let Some(perm) = state.battlefield.iter_mut().find(|p| p.id == *id) {
                                     perm.damage_marked += amount;
                                     effect_msgs.push(format!("Dealt {} damage to {}.", amount, perm.name));
                                 }
                             }
                         }
+                    }
+                    Effect::Destroy => {
+                        // Direct removal. Target is wiped from the battlefield immediately.
+                        if let Some(target) = top.targets.first() {
+                            // Match the tuple variant which only contains the ID string
+                            if let Target::Permanent(target_id) = target {
+                                let original_len = state.battlefield.len();
+                                
+                                // Quickly grab the name of the permanent before we delete it (for the return message)
+                                let target_name = state.battlefield.iter()
+                                    .find(|p| p.id == *target_id)
+                                    .map(|p| p.name.clone())
+                                    .unwrap_or_else(|| "permanent".to_string());
+                                
+                                // Retain everything that does NOT match the target_id
+                                state.battlefield.retain(|p| p.id != *target_id);
+                                
+                                if state.battlefield.len() < original_len {
+                                    return Ok(format!("{} resolved. Destroyed {}.", top.card.name, target_name));
+                                }
+                            }
+                        }
+                    }
+                    Effect::DrawCards { amount } => {
+                        // TODO: Future architecture will pop off the deck array and push to the hand array.
+                        // For now, we just validate the action and report the game state change.
+                        return Ok(format!("{} resolved. Player draws {} card(s).", top.card.name, amount));
                     }
                 }
             }
@@ -262,7 +289,7 @@ impl Judge {
     fn check_targets(state: &GameState, source_controller: &str, targets: &[crate::models::Target]) -> Option<Ruling> {
         for target in targets {
             match target {
-                crate::models::Target::Permanent(id) => {
+                Target::Permanent(id) => {
                     // 1. Does it exist?
                     let target_perm = state.battlefield.iter().find(|p| p.id == *id);
                     
@@ -287,13 +314,13 @@ impl Judge {
                         return Some(Ruling::Illegal(format!("Target permanent ID '{}' not found on the battlefield.", id)));
                     }
                 },
-                crate::models::Target::StackObject(id) => {
+                Target::StackObject(id) => {
                     // Used for Counterspells, Forks, etc.
                     if !state.stack.iter().any(|obj| obj.id == *id) {
                         return Some(Ruling::Illegal(format!("Target spell ID '{}' not found on the stack.", id)));
                     }
                 },
-                crate::models::Target::Player(name) => {
+                Target::Player(name) => {
                     // Verify the player exists (for now, hardcoded string check)
                     if name != "Player" && name != "Opponent" {
                         return Some(Ruling::Illegal(format!("Invalid player target: '{}'.", name)));
@@ -302,7 +329,7 @@ impl Judge {
                         return Some(Ruling::Illegal(format!("Invalid target: '{}' has Hexproof or Shroud.", name)));
                     }
                 },
-                crate::models::Target::ZoneCard(_) => {
+                Target::ZoneCard(_) => {
                     // Future: Graveyard or Exile targets (e.g., Reanimate)
                 }
             }
