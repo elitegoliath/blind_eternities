@@ -34,7 +34,9 @@ def main():
     # ]
     tools = [play_card, fetch_card]
     llm = get_llm()
-    llm_with_tools = llm.bind_tools(tools)
+    # Ensure the LLM cannot attempt parallel tool execution, 
+    # forcing it to wait for the result of the first tool before calling the next.
+    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
     tool_node = ToolNode(tools)
 
     # --- 3. Define Nodes (The Logic) ---

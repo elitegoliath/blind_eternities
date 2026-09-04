@@ -7,6 +7,8 @@ import re
 import lancedb
 from fastembed import TextEmbedding
 import json
+import os
+from pathlib import Path
 import ast
 from typing import Any, Optional
 from langchain_core.tools import tool
@@ -16,6 +18,34 @@ import mtg_logic_core  # type: ignore # <--- This is the compiled Rust code!
 print("[DEBUG] 📚 Loading FastEmbed Model and LanceDB...")
 embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 db = lancedb.connect("/app/data/lancedb")  # Maps to the Docker volume mount
+
+CURRENT_DIR = Path(__file__).parent
+STATE_FILE = CURRENT_DIR / "game_session.json"
+
+def load_game_state() -> dict:
+    """Loads the current game state from disk, or returns a fresh board."""
+    if STATE_FILE.exists():
+        try:
+            with open(STATE_FILE, "r") as f:
+                return json.load(f)
+        except json.JSONDecodeError:
+            pass
+            
+    # Default starting state
+    return {
+        "active_player": "Player",
+        "is_active_player": True,
+        "phase": "Main Phase 1",
+        "battlefield": [],
+        "stack": [],
+        "lands_played": 0,
+        "mana_pool": {"w": 0, "u": 0, "b": 0, "r": 0, "g": 0, "c": 0}
+    }
+
+def save_game_state(state_dict: dict):
+    """Saves the mutated game state back to disk."""
+    with open(STATE_FILE, "w") as f:
+        json.dump(state_dict, f, indent=2)
 
 def _parse_oracle_to_effects(oracle_text: str) -> list:
     """
@@ -429,34 +459,33 @@ def resolve_stack(
 def play_card(
     card_name: str,
     action_type: str = "CastSpell",
-    board_state: str = "[]",
     mana_pool: str = "{}",
-    stack: str = "[]",
-    lands_played: int = 0,
     targets: str = "[]"
 ) -> dict:
     """
-    Validates AND resolves a Magic: The Gathering move in one step.
-    Use this instead of calling validate_move and resolve_stack separately.
+    Validates AND resolves a Magic: The Gathering move.
     
     Args:
         card_name: The name of the card being played.
-        action_type: The type of action ("CastSpell", "PlayLand", "ActivateAbility").
-        board_state: Stringified JSON list of permanents. MUST include 'id' and 'name'.
-        mana_pool: Stringified dict of available mana. Example: '{"blue": 3}'.
-        stack: Stringified list of spells on the stack.
-        lands_played: Number of lands played this turn (default 0).
-        targets: Stringified list of target objects matching the board_state IDs. (Use '[]' for no targets).
+        action_type: The type of action ("CastSpell", "PlayLand").
+        mana_pool: Stringified dict of available mana. Example: '{"black": 3}'.
+        targets: Stringified list of target objects. Example: '[{"type": "Permanent", "id": "bear-1"}]'. (Use '[]' for no targets).
     """
     print(f"\n[DEBUG] 🛠️ Macro Tool executing for: {card_name}")
     
-    # Step 1: Validate (LLM is no longer allowed to provide cost or type!)
+    # 1. Load the absolute truth from disk
+    current_state = load_game_state()
+    board_state_str = json.dumps(current_state.get("battlefield", []))
+    stack_str = json.dumps(current_state.get("stack", []))
+    lands_played = current_state.get("lands_played", 0)
+
+    # 2. Validate
     validation_result = validate_move.invoke({
         "card_name": card_name, 
         "action_type": action_type,
-        "board_state": board_state, 
+        "board_state": board_state_str, 
         "mana_pool": mana_pool,
-        "stack": stack, 
+        "stack": stack_str, 
         "lands_played": lands_played, 
         "targets": targets
     })
@@ -468,12 +497,18 @@ def play_card(
     if any(isinstance(r, dict) and r.get("status") == "illegal" for r in rulings):
         return {"status": "illegal", "details": rulings}
         
-    # Step 2: Resolve (since it is legal)
+    # 3. Resolve
     resolve_result = resolve_stack.invoke({
         "card_name": card_name,
-        "board_state": board_state,
+        "board_state": board_state_str,
         "targets": targets
     })
+    
+    # 4. OVERWRITE THE SESSION STATE WITH RUST'S NEW STATE!
+    resolution = resolve_result.get("ruling", {})
+    if isinstance(resolution, dict) and "new_state" in resolution:
+        save_game_state(resolution["new_state"])
+        print("[DEBUG] 💾 Game state successfully saved to disk.")
     
     return {
         "status": "success",

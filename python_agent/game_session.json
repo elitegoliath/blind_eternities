@@ -1,0 +1,21 @@
+{
+  "active_player": "Player",
+  "is_active_player": true,
+  "phase": "Main Phase 1",
+  "battlefield": [
+    {
+      "id": "bear-1",
+      "name": "Grizzly Bears",
+      "controller": "Opponent",
+      "damage_marked": 0,
+      "is_tapped": false,
+      "is_legendary": false,
+      "power": 2,
+      "toughness": 2,
+      "types": ["Creature"]
+    }
+  ],
+  "stack": [],
+  "lands_played": 0,
+  "mana_pool": {"w": 0, "u": 0, "b": 0, "r": 0, "g": 0, "c": 0}
+}
