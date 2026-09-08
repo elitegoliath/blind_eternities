@@ -255,6 +255,10 @@ The Prompt to copy: `I currently have a legendary creature named 'Ragavan, Nimbl
 
 What this tests in Rust: The O(N^2) `check_legend_rule` function. This forces the LLM to build a board_state array with two identical legendary permanents, testing if the Rust iteration loop successfully catches the duplicate names/controllers and triggers the Ruling::StateBasedAction.
 
+Working test prompt 1: `My opponent has a Grizzly Bears on the battlefield. I tap 3 Swamps and cast Murder targeting the Grizzly Bears. In response, my opponent taps 2 Islands and casts Counterspell targeting my Murder. We both pass priority until the stack is empty. Walk me through exactly what happens.`
+
+Test prompt 2: `My opponent has a Centaur Courser on the battlefield. I cast Shock targeting the Centaur Courser. We both pass priority until the stack is empty. Then, I cast Gut Shot targeting the same Centaur Courser. We both pass priority until the stack is empty. Walk me through the resolution and the final board state.`
+
 ## Disclaimer
 
 Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.

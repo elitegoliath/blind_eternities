@@ -1,5 +1,7 @@
 # python_agent/main.py
 # This file is the main entry point for the Python Agent that interacts with the LLM and tools.
+import json
+import ast
 
 from typing import TypedDict, Annotated, Sequence
 
@@ -7,12 +9,63 @@ from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import StateGraph, END, add_messages
 from langgraph.prebuilt import ToolNode
+from langchain_core.messages import AIMessage
+from langchain_core.messages.tool import ToolCall
 
 # Import local modules
 from python_agent.llm_engine import get_llm, SYSTEM_PROMPT
-from python_agent.tools import play_card, fetch_card
+from python_agent.tools import fetch_card, cast_spell, pass_priority
 
 load_dotenv()
+
+def qwen_tool_interceptor(state: dict) -> dict:
+    """
+    Extracts tool calls buried inside conversational text, XML tags, or markdown.
+    """
+    msg_key = "messages" if "messages" in state else "chat_history"
+    
+    if msg_key not in state or not state[msg_key]:
+        return state
+
+    messages = state[msg_key]
+    last_message = messages[-1]
+
+    if isinstance(last_message, AIMessage) and not last_message.tool_calls and last_message.content:
+        content_str = last_message.content.strip()
+        
+        # Find the boundaries of the dictionary, ignoring surrounding text/XML
+        start_idx = content_str.find("{")
+        end_idx = content_str.rfind("}")
+        
+        if start_idx != -1 and end_idx != -1:
+            dict_str = content_str[start_idx:end_idx+1]
+            
+            parsed_dict = None
+            try:
+                # Try strict JSON first
+                parsed_dict = json.loads(dict_str)
+            except json.JSONDecodeError:
+                try:
+                    # Fall back to AST for single-quote hallucinations
+                    parsed_dict = ast.literal_eval(dict_str)
+                except (ValueError, SyntaxError):
+                    pass
+            
+            if parsed_dict and "name" in parsed_dict and "arguments" in parsed_dict:
+                print(f"\n[DEBUG] 🪝 Intercepted buried tool call: {parsed_dict['name']}")
+                
+                injected_tool_call = ToolCall(
+                    name=parsed_dict["name"],
+                    args=parsed_dict["arguments"],
+                    id=f"call_{hash(dict_str) % 10000}" 
+                )
+                
+                last_message.tool_calls = [injected_tool_call]
+                last_message.content = "" 
+                
+                return {msg_key: messages}
+                
+    return {msg_key: messages}
 
 # --- 1. Define the State ---
 # This acts like a Redux store for the conversation.
@@ -32,11 +85,11 @@ def main():
     #         description="Checks Magic: The Gathering rule legality. Input: JSON string."
     #     )
     # ]
-    tools = [play_card, fetch_card]
+    tools = [fetch_card, cast_spell, pass_priority]
     llm = get_llm()
     # Ensure the LLM cannot attempt parallel tool execution, 
     # forcing it to wait for the result of the first tool before calling the next.
-    llm_with_tools = llm.bind_tools(tools, parallel_tool_calls=False)
+    llm_with_tools = llm.bind_tools(tools)
     tool_node = ToolNode(tools)
 
     # --- 3. Define Nodes (The Logic) ---
@@ -55,35 +108,44 @@ def main():
     tool_node = ToolNode(tools)
 
     # --- 4. Define Edges (The Flow Control) ---
-    
-    def should_continue(state: AgentState):
-        """Decides: Do we run tools or stop?"""
-        last_message = state["messages"][-1]
+
+    def should_continue(state: dict) -> str:
+        """Routes to the tool node if a tool call exists, otherwise ends the loop."""
+        # Find the correct key for your state
+        msg_key = "messages" if "messages" in state else "chat_history"
+        last_message = state[msg_key][-1]
         
-        # If the LLM returned a tool_call, go to 'tools'
-        if last_message.tool_calls:
-            return "tools"
-        # Otherwise, stop
+        # If the LLM (or our interceptor) added tool calls, execute them
+        if hasattr(last_message, "tool_calls") and last_message.tool_calls:
+            return "action"
+        
+        # Otherwise, the response is finished
         return END
 
     # --- 5. Build the Graph ---
+    # 1. Build the graph
     workflow = StateGraph(AgentState)
 
+    # 2. Add the nodes
     workflow.add_node("agent", call_model)
-    workflow.add_node("tools", tool_node)
+    workflow.add_node("interceptor", qwen_tool_interceptor)
+    workflow.add_node("action", tool_node)
 
+    # 3. Set the entry point
     workflow.set_entry_point("agent")
 
-    # Conditional Logic: After 'agent', check if we need tools
+    # 4. Route LLM output through the interceptor
+    workflow.add_edge("agent", "interceptor")
+
+    # 5. Connect the interceptor to the router
     workflow.add_conditional_edges(
-        "agent",
-        should_continue,
+        "interceptor",
+        should_continue
     )
 
-    # Loop Logic: After 'tools', always go back to 'agent' to interpret results
-    workflow.add_edge("tools", "agent")
+    # 6. Complete the loop
+    workflow.add_edge("action", "agent")
 
-    # Compile into a Runnable
     app = workflow.compile()
 
     # --- 6. Interactive Loop ---

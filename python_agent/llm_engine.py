@@ -10,9 +10,9 @@
 
 import os
 from functools import lru_cache
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from pathlib import Path
+from langchain_ollama import ChatOllama
 
 # --- The Persona ---
 # This is where we prompt-engineer the "Judge" behavior.
@@ -20,30 +20,22 @@ prompt_path = Path(__file__).parent / "system_prompt.md"
 SYSTEM_PROMPT = prompt_path.read_text(encoding="utf-8")
 
 @lru_cache(maxsize=1)
-def get_llm(temperature: float = 0.0) -> ChatOpenAI:
+def get_llm(temperature: float = 0.0) -> ChatOllama:
     """
     Returns a configured LLM instance. 
     Cached to prevent re-initialization overhead during high-throughput testing.
     """
 
-    model_name = os.getenv("LLM_MODEL_NAME", "llama3.1")
-
-    # Local runners usually ignore the API key, but LangChain/OpenAI SDK 
-    # still require the variable to be populated with a string.
-    api_key = os.getenv("OPENAI_API_KEY", "not-needed-for-local")
-
     # Set this to the port your host runner (Ollama, LM Studio, vLLM) is using.
     # E.g., 11434 for Ollama, 1234 for LM Studio.
-    local_base_url = os.getenv("LLM_BASE_URL", "http://llm-engine:11434/v1")
+    local_base_url = os.getenv("LLM_BASE_URL", "http://llm-engine:11434")
 
     print(f"[DEBUG] 🧠 Connecting to local LLM at {local_base_url}")
 
-    return ChatOpenAI(
-        model=model_name,
-        base_url=local_base_url,
-        api_key=api_key,
-        temperature=temperature, # Keep at 0 for deterministic rule evaluation
-        streaming=True,          # Better UX for long explanations
+    return ChatOllama(
+        model=os.getenv("LLM_MODEL_NAME", "qwen2.5-coder:7b"),
+        base_url="http://llm-engine:11434", 
+        temperature=temperature
     )
 
 def get_prompt_template() -> ChatPromptTemplate:

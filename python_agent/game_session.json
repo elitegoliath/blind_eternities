@@ -4,18 +4,20 @@
   "phase": "Main Phase 1",
   "battlefield": [
     {
-      "id": "bear-1",
-      "name": "Grizzly Bears",
+      "id": "centaur-courser-1",
+      "name": "Centaur Courser",
       "controller": "Opponent",
       "damage_marked": 0,
       "is_tapped": false,
       "is_legendary": false,
-      "power": 2,
-      "toughness": 2,
+      "power": 3,
+      "toughness": 3,
       "types": ["Creature"]
     }
   ],
+  "graveyard": [],
   "stack": [],
+  "consecutive_passes": 0,
   "lands_played": 0,
   "mana_pool": {"w": 0, "u": 0, "b": 0, "r": 0, "g": 0, "c": 0}
 }

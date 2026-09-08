@@ -227,6 +227,29 @@ impl Judge {
                         // For now, we just validate the action and report the game state change.
                         return Ok(format!("{} resolved. Player draws {} card(s).", top.card.name, amount));
                     }
+                    Effect::Counter => {
+                        if let Some(target) = top.targets.first() {
+                            // Match the StackObject tuple variant which holds the spell's ID string
+                            if let Target::StackObject(target_id) = target {
+                                let original_len = state.stack.len();
+                                
+                                // Grab the name of the spell we are countering for the return message
+                                let countered_name = state.stack.iter()
+                                    .find(|spell| spell.id == *target_id)
+                                    .map(|spell| spell.card.name.clone())
+                                    .unwrap_or_else(|| "spell".to_string());
+                                
+                                // Retain everything on the stack that does NOT match the target_id
+                                state.stack.retain(|spell| spell.id != *target_id);
+                                
+                                if state.stack.len() < original_len {
+                                    return Ok(format!("{} resolved. Countered {}.", top.card.name, countered_name));
+                                } else {
+                                    return Ok(format!("{} resolved, but its target was no longer on the stack (Fizzled).", top.card.name));
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -382,5 +405,27 @@ impl Judge {
         }
         
         messages
+    }
+
+    // This function manages the priority sequence
+    pub fn pass_priority(state: &mut GameState) -> Result<String, String> {
+        // Increment the counter every time a player passes
+        state.consecutive_passes += 1;
+
+        // Assuming a 2-player game: if both players pass in succession
+        if state.consecutive_passes >= 2 {
+            state.consecutive_passes = 0; // Reset for the next interaction
+            
+            if !state.stack.is_empty() {
+                // CR 117.4: If all players pass, resolve the top spell on the stack
+                return Judge::resolve_top(state);
+            } else {
+                // CR 117.4: If the stack is empty and all players pass, advance the phase
+                // (Phase transition logic will be built out later)
+                return Ok("Stack is empty. Proceeding to next phase/step.".to_string());
+            }
+        }
+        
+        Ok("Priority passed to the next player.".to_string())
     }
 }

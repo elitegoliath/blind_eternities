@@ -214,11 +214,34 @@ fn resolve_stack_top(json_payload: String) -> PyResult<String> {
     }
 }
 
+#[pyfunction]
+fn pass_priority_endpoint(state_json: String) -> PyResult<String> {
+    // 1. Deserialize the state
+    let mut state: GameState = serde_json::from_str(&state_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    // 2. Execute priority logic
+    let message = match Judge::pass_priority(&mut state) {
+        Ok(msg) => msg,
+        Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
+    };
+
+    // 3. Serialize and return the mutated state
+    let response = serde_json::json!({
+        "status": "success",
+        "message": message,
+        "new_state": state 
+    });
+
+    Ok(serde_json::to_string(&response).unwrap())
+}
+
 #[pymodule]
 fn mtg_logic_core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_board_state, m)?)?;
     m.add_function(wrap_pyfunction!(search_cards, m)?)?;
     m.add_function(wrap_pyfunction!(apply_action, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_stack_top, m)?)?;
+    m.add_function(wrap_pyfunction!(pass_priority_endpoint, m)?)?;
     Ok(())
 }

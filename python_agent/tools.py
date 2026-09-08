@@ -7,7 +7,6 @@ import re
 import lancedb
 from fastembed import TextEmbedding
 import json
-import os
 from pathlib import Path
 import ast
 from typing import Any, Optional
@@ -39,7 +38,8 @@ def load_game_state() -> dict:
         "battlefield": [],
         "stack": [],
         "lands_played": 0,
-        "mana_pool": {"w": 0, "u": 0, "b": 0, "r": 0, "g": 0, "c": 0}
+        "mana_pool": {"w": 0, "u": 0, "b": 0, "r": 0, "g": 0, "c": 0},
+        "consecutive_passes": 0
     }
 
 def save_game_state(state_dict: dict):
@@ -85,6 +85,9 @@ def _parse_oracle_to_effects(oracle_text: str) -> list:
                 "type": "DrawCards", 
                 "amount": amount
             })
+
+    if "Counter target spell" in oracle_text:
+        effects.append({"type": "Counter"})
 
     return effects
 
@@ -456,62 +459,87 @@ def resolve_stack(
 
 
 @tool
-def play_card(
-    card_name: str,
-    action_type: str = "CastSpell",
-    mana_pool: str = "{}",
-    targets: str = "[]"
-) -> dict:
+def cast_spell(card_name: str, targets: str = "[]") -> dict:
     """
-    Validates AND resolves a Magic: The Gathering move.
+    Casts a spell by putting it on the stack. It DOES NOT resolve the spell.
     
     Args:
-        card_name: The name of the card being played.
-        action_type: The type of action ("CastSpell", "PlayLand").
-        mana_pool: Stringified dict of available mana. Example: '{"black": 3}'.
-        targets: Stringified list of target objects. Example: '[{"type": "Permanent", "id": "bear-1"}]'. (Use '[]' for no targets).
+        card_name: The exact name of the card.
+        targets: A stringified JSON list. You MUST use this exact format: '[{"type": "Permanent", "id": "bear-1"}]'. Do NOT pass a plain string.
     """
-    print(f"\n[DEBUG] 🛠️ Macro Tool executing for: {card_name}")
+    print(f"\n[DEBUG] 🛠️ Casting {card_name} onto the stack")
     
-    # 1. Load the absolute truth from disk
-    current_state = load_game_state()
-    board_state_str = json.dumps(current_state.get("battlefield", []))
-    stack_str = json.dumps(current_state.get("stack", []))
-    lands_played = current_state.get("lands_played", 0)
+    state = load_game_state()
+    
+    # 1. Fetch real card data autonomously (using your existing functions)
+    cached = _lookup_card_direct(card_name)
+    mana_cost = cached.get("mana_cost", "{0}") if cached else "{0}"
+    type_line = cached.get("type_line", ["Unknown"]) if cached else ["Unknown"]
+    oracle_text = cached.get("oracle_text", "") if cached else ""
+    
+    parsed_effects = _parse_oracle_to_effects(oracle_text)
+    parsed_targets = _clean_json_param(targets)
 
-    # 2. Validate
-    validation_result = validate_move.invoke({
-        "card_name": card_name, 
-        "action_type": action_type,
-        "board_state": board_state_str, 
-        "mana_pool": mana_pool,
-        "stack": stack_str, 
-        "lands_played": lands_played, 
-        "targets": targets
-    })
+    # 2. Construct the stack object
+    spell_object = {
+        "id": f"spell-{hash(card_name) % 10000}",
+        "controller": state.get("active_player", "Player"),
+        "targets": parsed_targets,
+        "card": {
+            "name": card_name,
+            "type_line": type_line,
+            "mana_cost": mana_cost,
+            "oracle_text": oracle_text,
+            "effects": parsed_effects
+        }
+    }
     
-    if validation_result.get("status") == "error":
-        return validation_result
-        
-    rulings = validation_result.get("ruling", [])
-    if any(isinstance(r, dict) and r.get("status") == "illegal" for r in rulings):
-        return {"status": "illegal", "details": rulings}
-        
-    # 3. Resolve
-    resolve_result = resolve_stack.invoke({
-        "card_name": card_name,
-        "board_state": board_state_str,
-        "targets": targets
-    })
+    # 3. Push to stack and RESET priority passes
+    if "stack" not in state:
+        state["stack"] = []
     
-    # 4. OVERWRITE THE SESSION STATE WITH RUST'S NEW STATE!
-    resolution = resolve_result.get("ruling", {})
-    if isinstance(resolution, dict) and "new_state" in resolution:
-        save_game_state(resolution["new_state"])
-        print("[DEBUG] 💾 Game state successfully saved to disk.")
+    state["stack"].append(spell_object)
+    
+    # CRITICAL: Taking an action breaks the chain of succession
+    state["consecutive_passes"] = 0  
+    
+    save_game_state(state)
     
     return {
         "status": "success",
-        "validation": "Legal",
-        "resolution": resolve_result.get("ruling", "Unknown resolution")
+        "message": f"{card_name} placed on the stack with ID '{spell_object['id']}'. Priority passes to opponent.",
+        "stack_size": len(state["stack"])
     }
+
+@tool
+def pass_priority() -> dict:
+    """
+    Passes priority to the next player. 
+    If all players pass, the engine resolves the top spell on the stack.
+    """
+    print("\n[DEBUG] 🛠️ Passing priority...")
+    
+    state = load_game_state()
+    
+    if "consecutive_passes" not in state:
+        state["consecutive_passes"] = 0
+        
+    try:
+        # Hit the Rust endpoint
+        ruling_raw = mtg_logic_core.pass_priority_endpoint(json.dumps(state))
+        ruling = json.loads(ruling_raw)
+        
+        if ruling.get("status") == "success":
+            new_state = ruling.get("new_state", state)
+            save_game_state(new_state)
+            
+            return {
+                "status": "success",
+                "message": ruling.get("message", "Priority passed."),
+                "stack_size": len(new_state.get("stack", []))
+            }
+        else:
+            return {"status": "error", "message": ruling.get("message", "Engine error")}
+            
+    except Exception as e:
+        return {"status": "error", "message": str(e)}

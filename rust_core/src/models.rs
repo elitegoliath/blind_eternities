@@ -15,6 +15,7 @@ pub enum Effect {
     DealDamage { amount: u32 },
     Destroy, // No extra fields needed, it just targets
     DrawCards { amount: u32 },
+    Counter,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -308,6 +309,7 @@ pub struct GameState {
 
     #[serde(default)] // Fallback to defaults if Python omits it
     pub rules_config: RulesConfig,
+    pub consecutive_passes: u8,
 }
 
 impl GameState {

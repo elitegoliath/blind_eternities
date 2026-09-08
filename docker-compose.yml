@@ -19,6 +19,24 @@ services:
               capabilities:
                 - GPU
   
+  llm-puller:
+    image: ollama/ollama:latest
+    container_name: blind-eternities-llm-puller
+    depends_on:
+      - llm-engine
+    environment:
+      # Tell this temporary container to talk to the engine container
+      - OLLAMA_HOST=llm-engine:11434
+    entrypoint: /bin/sh
+    command: >
+      -c "
+      echo 'Waiting for Ollama engine to wake up...';
+      while ! ollama list > /dev/null 2>&1; do sleep 2; done;
+      echo 'Pulling qwen2.5-coder:7b (this will take a few minutes on first run)...';
+      ollama pull qwen2.5-coder:7b;
+      echo 'Model is locked and loaded!';
+      "
+
   blind-eternities-app:
     build:
       context: .
@@ -30,12 +48,16 @@ services:
       - OPENAI_API_KEY=not-needed-for-local
       - LLM_BASE_URL=http://llm-engine:11434/v1
       # Tell LangChain exactly which Ollama model to request
-      - LLM_MODEL_NAME=llama3.1
+      - LLM_MODEL_NAME=qwen2.5-coder:7b
     volumes:
       # Maps the local ./data folder to the container's /app/data folder
       - ./data:/app/data
     depends_on:
-      - llm-engine
+      # Wait for the model to finish downloading before starting Python
+      llm-puller:
+        condition: service_completed_successfully
+      llm-engine:
+        condition: service_started
     # Keeps the container running so we can interact with the terminal
     stdin_open: true
     tty: true

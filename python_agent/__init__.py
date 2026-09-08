@@ -6,8 +6,7 @@
 # instead of digging into submodules.
 
 # Expose the specific functions meant to be public
-from .tools import fetch_card, play_card
+from .tools import fetch_card, cast_spell, pass_priority
 
 # Define what happens on 'from python_agent import *'
-# __all__ = ["validate_move", "search_rules", "get_llm", "SYSTEM_PROMPT"]
-__all__ = ["fetch_card", "play_card"]
+__all__ = [fetch_card, cast_spell, pass_priority]
