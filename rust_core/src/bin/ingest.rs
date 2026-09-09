@@ -1,5 +1,6 @@
 // rust_core/src/bin/ingest.rs
 
+use flate2::read::GzDecoder;
 use futures_util::StreamExt;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -7,7 +8,6 @@ use serde_json::Value;
 use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
-use flate2::read::GzDecoder;
 
 // --- 1. Define the Data Structure ---
 #[derive(Debug, Serialize, Deserialize)]
@@ -20,13 +20,13 @@ struct ScryfallCard {
     type_line: String,
     #[serde(default)]
     oracle_text: String,
-    set_type: String, 
+    set_type: String,
     legalities: Legalities,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Legalities {
-    commander: String, 
+    commander: String,
     vintage: String,
 }
 
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Step 1: Get the Download Link ---
     println!(">>> Fetching metadata...");
-    
+
     // Using the modern underscore format for the endpoint
     let response = client
         .get("https://api.scryfall.com/bulk-data/oracle_cards")
@@ -48,7 +48,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     if !response.status().is_success() {
-        panic!("Scryfall API Error: {} - check your connection or User-Agent.", response.status());
+        panic!(
+            "Scryfall API Error: {} - check your connection or User-Agent.",
+            response.status()
+        );
     }
 
     let bulk_meta: Value = response.json().await?;
@@ -57,14 +60,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let download_uri = bulk_meta["jsonl_download_uri"]
         .as_str()
         .expect("Failed to find 'jsonl_download_uri'. API response format changed.");
-    
+
     println!(">>> Target acquired: {}", download_uri);
 
     // --- Step 2: Download Stream to Disk ---
-    let temp_file_path = "scryfall_raw.jsonl.gz";
-    
+    let temp_file_path = "data/scryfall_raw.jsonl.gz";
+
     if Path::new(temp_file_path).exists() {
-        println!(">>> Temp file exists. Skipping download (delete '{}' to force refresh).", temp_file_path);
+        println!(
+            ">>> Temp file exists. Skipping download (delete '{}' to force refresh).",
+            temp_file_path
+        );
     } else {
         println!(">>> Downloading gzipped JSONL stream...");
         let response = client.get(download_uri).send().await?;
@@ -80,36 +86,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Step 3: Stream-Parse and Filter ---
     println!(">>> Decompressing, Parsing and Filtering...");
-    
-    let file = File::open("scryfall_raw.jsonl.gz")?;
-    
+
+    let file = File::open(temp_file_path)?;
+
     // Automatically decompress the gzip stream on the fly
     let gz = GzDecoder::new(file);
     let reader = BufReader::new(gz);
-    
-    let output_file = File::create("processed_cards.jsonl")?;
+
+    let output_file = File::create("data/processed_cards.jsonl")?;
     let mut writer = BufWriter::new(output_file);
-    
+
     let mut valid_cards = 0;
     let mut skipped_cards = 0;
 
     // Because it's JSONL, we can just read it line by line directly!
     for line_result in reader.lines() {
         let line = line_result?;
-        if line.trim().is_empty() { continue; }
+        if line.trim().is_empty() {
+            continue;
+        }
 
         // Attempt to parse the line into our ScryfallCard struct
         if let Ok(card) = serde_json::from_str::<ScryfallCard>(&line) {
-            
             // FILTER: Remove Un-sets, Tokens, etc.
-            if card.set_type == "funny" || card.set_type == "token" || card.set_type == "memorabilia" {
+            if card.set_type == "funny"
+                || card.set_type == "token"
+                || card.set_type == "memorabilia"
+            {
                 skipped_cards += 1;
                 continue;
             }
 
             serde_json::to_writer(&mut writer, &card)?;
             writer.write_all(b"\n")?;
-            
+
             valid_cards += 1;
             if valid_cards % 5000 == 0 {
                 print!("\rProcessed: {} | Skipped: {}", valid_cards, skipped_cards);
@@ -120,6 +130,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n>>> Ingestion Complete.");
     println!(">>> Database ready: {} valid cards saved.", valid_cards);
-    
+
     Ok(())
 }

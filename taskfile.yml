@@ -1,11 +1,46 @@
 version: '3'
 
 tasks:
-  app-run:
+  compile:
+    desc: Compile the Rust core as a Python extension
+    cmds:
+      - maturin develop
+
+  ingest:
+    desc: Download and process raw Scryfall data into data/
+    cmds:
+      - cd rust_core && cargo run --bin ingest
+
+  index:
+    desc: Generate vector embeddings and build the LanceDB database
+    cmds:
+      - cd rust_core && cargo run --bin indexer
+
+  ui:
+    desc: Run the Streamlit Judge interface
     cmds:
       - streamlit run app.py
 
-  compile-backend:
-    dir: ./rust_core
+  agent:
+    desc: Run the interactive Python AI agent
     cmds:
-      - maturin develop
+      - python -m python_agent.main
+
+  test:
+    desc: Run all tests (Rust unit tests & Python integration tests)
+    cmds:
+      - cd rust_core && cargo test
+      - pytest tests/
+
+  lint:
+    desc: Run linters (Ruff for Python, Clippy for Rust)
+    cmds:
+      - ruff check .
+      - cd rust_core && cargo clippy
+
+  fmt:
+    desc: Run formatters (Ruff for Python, Rustfmt for Rust)
+    cmds:
+      - ruff format .
+      - ruff check --fix .
+      - cd rust_core && cargo fmt

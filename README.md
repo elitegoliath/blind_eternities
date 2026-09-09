@@ -2,9 +2,13 @@
 
 **A Retrieval-Augmented Rules (RAG) Engine for Magic: The Gathering**
 
+## Overview
+
+Blind Eternities is an AI-driven, polyglot application that acts as a judge and rules assistant for Magic: The Gathering. It uses a hybrid **Python + Rust** architecture to combine the natural language reasoning capabilities of Large Language Models (LLMs) with the strict, deterministic execution of a compiled rules engine.
+
 ## Architecture
 
-This project uses a hybrid **Python + Rust** architecture. Python handles the semantic reasoning (LLM), while a compiled Rust core enforces the strict game state and handles high-performance vector retrieval.
+Python handles the semantic reasoning and LLM orchestration, while a compiled Rust core enforces the strict game state rules and handles high-performance vector retrieval via LanceDB.
 
 ```mermaid
     graph TD
@@ -15,20 +19,20 @@ This project uses a hybrid **Python + Rust** architecture. Python handles the se
     classDef user fill:#fff,stroke:#333,stroke-width:1px,color:#000;
 
     user([User / Developer]) -->|Natural Language Query| Agent
-    
+
     subgraph "Python Land (The Orchestrator)"
         Agent[Agent Runtime<br/><i>LangChain + Pydantic</i>]:::python
-        LLM[LLM Interface<br/><i>OpenAI / Anthropic</i>]:::python
+        LLM[LLM Interface<br/><i>OpenAI / Anthropic / Ollama</i>]:::python
         Agent <-->|Context & Reasoning| LLM
     end
 
     Agent <==>|FFI / PyO3 Bridge<br/><i>Zero-Copy Data Transfer</i>| Core
-    
+
     subgraph "Rust Land (The Judge)"
         Core[Compiled Extension<br/><i>mtg_logic_core.so</i>]:::rust
         Rules[Rules Engine<br/><i>State Machine & Layers</i>]:::rust
         Ingest[Data Ingestion<br/><i>Streaming Parser</i>]:::rust
-        
+
         Core --> Rules
         Ingest --> DB
     end
@@ -42,223 +46,49 @@ This project uses a hybrid **Python + Rust** architecture. Python handles the se
     Ingest -.->|Periodic Updates| Scryfall(Scryfall API):::user
 ```
 
-## Phase 1 - The Judge
+## Setup & Installation
 
-Steps to verify (ensure .env vars are filled out):
+1. **Environment Variables**: Create a `.env` file in the root directory (you can copy `.env.example`).
+2. **Compile the Rust Bridge**: The Rust engine must be compiled into a Python extension module.
+   ```bash
+   task compile
+   ```
+3. **Verify Installation**: Test that the FFI bridge is working correctly.
+   ```bash
+   python -c "import mtg_logic_core; print(f'Bridge Operational: {mtg_logic_core.__name__}')"
+   ```
 
-* Test the rust backend:
-  * cd rust_core
-  * cargo test
+## Usage Instructions
 
-* Compile the rust_core as a python library:
-  * Ensure terminal is at project root
-  * maturin develop
+This project includes Go-Task (`task`) to run standard operations easily.
 
-* Smoke test:
-  * Ensure terminal is at project root
-  * python -c "import mtg_logic_core; print(f'Bridge Operational: {mtg_logic_core.\_\_name\_\_}')"
-
-* Run interactive python agent (run as a module (-m) to resolve relative imports correctly):
-  * python -m python_agent.main
-  * Enter the following prompt once the agent is ready for `User:` input:
-    * I have an Urza, Lord High Artificer on the battlefield. I cast a second Urza, Lord High Artificer. What happens?
-
-My first prompt response:
-
-```txt
-[DEBUG] 🛠️  The Agent is calling Rust for: Urza, Lord High Artificer
-Agent: You cannot keep two Urza, Lord High Artificer on the battlefield.
-
-What happens:
-- You cast a second Urza. Both Urzas are on the battlefield, so state-based actions are checked.
-- The Legend Rule applies: if a player controls two or more legendary permanents with the same name, that player sacrifices all but one of them.
-- You choose which Urza to keep; the other Urza is put into its owner's graveyard immediately.
-
-Result: You end up with only one Urza, Lord High Artificer, on the battlefield.
-
-Citations:
-- The Legend Rule: If a player controls two or more legendary permanents with the same name, that player sacrifices all but one of them. (CR reference: Legend Rule, commonly cited as 704.5 in the current Comprehensive Rules; exact numbering may vary by edition, but the rule is well-established as the Legend Rule.)
-
-Note:
-- Entering-the-battlefield triggers associated with the second Urza would be placed on the stack as part of the event of it entering; however, the legend-rule sacrifice occurs as a state-based action immediately after resolution, before priority. If you’d like, I can walk through the exact timing and any ETB triggers for this scenario.
+### Interactive AI Agent
+Run the command-line LLM interface (ensure your local Ollama or configured LLM provider is running):
+```bash
+task agent
 ```
 
-This is a huge milestone. I have successfully built a Vertical Slice of a polyglot AI architecture.
-
-Why this is a victory:
-The Proof ([DEBUG]): That print statement confirms the LLM didn't just guess. It recognized the need for authority, formulated a JSON payload, crossed the FFI boundary into Rust, executed the compiled logic, and interpreted the structured result.
-
-The Nuance: Notice the agent correctly identified that State-Based Actions (SBAs) happen before triggers go on the stack. The LLM handled the "Explanation" layer, while Rust provided the "Hard Truth" (the Legend Rule violation).
-
-Phase 2: The "Librarian" (Vector Database)
-Right now, the Rust engine is a brilliant judge, but it has amnesia. It only knows the cards explicitly passed to it in the JSON. To make this a real product, it needs instant access to the 27,000+ cards in the scryfall_oracle.json file that will be downloaded in the next milestone.
-
-I need to implement Retrieval Augmented Generation (RAG) using LanceDB.
-
-## Phase 2 - The Librarian
-
-* Download and parse card data from Scryfall using the "ingest" rust script.
-* Index the card data for optimized use in a vector database using the "index" rust script.
-  
-Steps to verify:
-
-* Ensure terminal is in project root
-* python ./test_core.py
-
-## Phase 3 - The Concept of Time
-
-* Implementing "Timing" rules. For example:
-  * "Can I cast this Creature right now?" or "Can I play a Land during an opponent's turn?"
-
-Steps to verify:
-
-* Ensure terminal is in project root
-* python ./test_judge_logic.py
-
-## Phase 4 - The Cockpit
-
-* Use Streamlit for a simple dashboard for card searches and Judge interactions.
-
-Steps to verify:
-
-* Ensure terminal is in project root
-* streamlit run app.py
-* A browser window should open. Then, try this scenario:
-  * Librarian:
-    * Type "counter target spell" to test the vector search speed.
-  * Judge:
-    * Set Phase to "Combat".
-    * Uncheck Is Active Player (simulate opponent's turn).
-    * Set Attempt Action to "Cast Spell".
-    * Set Card Types to "Sorcery".
-    * Click Check Legality.
-
-My latest test results:
-
-* Librarian: 14 milliseconds
-* Judge: 7 milliseconds
-
-Retrospective: Why this works
-The Singleton (OnceLock): This is the MVP. Without it, we'd be re-initializing the 30MB model on every click, pushing that 14ms to ~500ms.
-
-Zero-Copy (mostly): By passing JSON strings, we incur a tiny serialization cost, but it's negligible compared to the logic speed.
-
-Rust Safety: The "Compiler-Driven Development" done with the GameAction enum ensures a button couldn't be added in Python that crashes the backend.
-
-## Phase 5 - The Mana System
-
-Understands mana and mana cost. Added UI elements to support this.
-
-## Phase 6 - Vector Search (meaning) / SQL Filtering (precision) hybrid
-
-This is often called "Pre-filtering" in vector databases. We will tell LanceDB to narrow down the search space using a SQL WHERE clause before (or while) performing the vector similarity search.
-
-Steps to verify:
-
-* Ensure terminal is in project root
-* streamlit run app.py
-* A browser window should open. Then, try this scenario:
-  * Query: "Remove a creature from the game"
-  * Filter: "Instant"
-
-Without the filter, the AI often returns Planeswalkers or Sorceries (like "Exile target creature"). With the filter, you are forcing the Rust backend to:
-
-1. Read the LanceDB Index.
-2. Hard-discard anything that isn't an "Instant".
-3. Then find the most semantically similar cards among the survivors.
-
-This is how modern RAG (Retrieval-Augmented Generation) systems are built—it's not just vector math; it's vector math constrained by business logic.
-
-## Phase 7 - State Transitions
-
-Convert generic GameState into a mutable system that includes subtracting mana, moving cards, and clearing the pending action.
-
-Perform this sequence in the app to prove the "Game Loop" is alive:
-
-Setup Resources:
-
-* Use the new arrow buttons to add 2 Blue ({U}) and 2 Colorless ({C}) mana.
-* Check: The number next to the arrows should show 2.
-* Attempt Action:
-  * Action: "Cast Spell"
-  * Name: "Hedron Archive"
-  * Cost: {4}
-  * Click APPLY ACTION.
-* Verify Result:
-  * Status: You should see "✅ Resolved!".
-  * Battlefield/Stack: "Hedron Archive" should appear in the Stack column.
-  * Mana: The Blue and Colorless mana counters should auto-decrement to 0 (because the engine greedly consumed them to pay the {4} generic cost).
-
-If that works, it proves that the app compiled, and is a memory-safe, hybrid AI/Rules engine for Magic: The Gathering.
-
-## Phase 8 - Ollama Integration and Containerization
-
-### Phase Test Steps
-
-\# 1. Build and boot the stack in the background (skip --build if this isn't the first time)
-`docker compose up --build -d`
-
-\# 2. Pull the model weights inside the Ollama container (only needed the first time)
-`docker exec -it blind-eternities-llm ollama pull llama3.1`
-
-\# 3. Attach directly to the interactive Python terminal loop
-`docker attach blind-eternities-app`
-
-Once attached, hit Enter once to ensure your terminal syncs with the container output. You should see the prompt:
-`>>> Agent Ready. Ask a question (or 'q' to quit).`
-
-To ensure that the Python state graph, the Ollama tool-calling capabilities, and the compilation layers are working seamlessly, you can test with two distinct types of queries:
-
-### Test 1: Direct LLM Reasoning (Verifies Ollama & LangChain Connectivity)
-
-`User: Explain how the priority system works in Magic: The Gathering when a player casts a spell.`
-
-**Expected Output:** The stream should immediately hit the agent node, skip the tool node (since this is a pure rules explanation query), and print out a clean text breakdown directly from Llama 3.1.
-
-### Test 2: Tool Execution (Verifies PyO3 Rust Wheel Binding)
-
-`User: Can you check if this move is legal? I am trying to cast a spell during my opponent's untap step.`
-
-Extra test:
-
-`User: I have 3 blue mana available. Can I cast a spell that costs {1}{U}{U}?`
-
-**Expected Output:**
-
-1. The agent node should trigger, recognize that it needs to evaluate a game action, and output: 🤖 Agent: I need to use tool 'validate_move'. along with the parsed arguments.
-2. The tools node will execute, invoking your compiled Rust core library, and output the result: 🛠️ Tool 'validate_move' Output: ...
-3. The loop will pass back to the agent node to synthesize that raw tool feedback into a clean, human-readable confirmation.
-
-### Leaving the Container Safely
-
-When you are done testing, do not use `Ctrl + C` to quit the App, as that can kill the main Python process inside the container. Instead, type `q` into the User prompt and hit enter.
-
-For complete environment teardown: `docker compose down`.
-
-### Advanced Test Scenarios
-
-#### The Stack & Timing Test
-
-The Prompt to copy: `My opponent just cast a spell, so there is currently a spell on the stack. I want to cast 'Grizzly Bears', which is a Creature spell. Is this legal right now?`
-
-What this tests in Rust: The `check_cast_timing` function. Specifically, it tests if the LLM correctly populates the stack array in the JSON payload, and if Rust correctly enforces the !state.stack.is_empty() rule to block non-Instant spells.
-
-#### The Rule Limit Test
-
-The Prompt to copy: `It is my turn, it's my first main phase, and the stack is empty. However, I have already played 1 land this turn. Can I play a 'Mountain' from my hand?`
-
-What this tests in Rust: The `check_land_drop` function. It verifies if the LLM correctly parses that lands_played should be 1 (or higher) and ensures the Rust engine throws the Illegal("Land limit reached") ruling.
-
-#### The State-Based Action (SBA) Test
-
-The Prompt to copy: `I currently have a legendary creature named 'Ragavan, Nimble Pilferer' on the battlefield under my control. A spell just resolved, and a second legendary creature named 'Ragavan, Nimble Pilferer' entered the battlefield under my control. What happens?`
-
-What this tests in Rust: The O(N^2) `check_legend_rule` function. This forces the LLM to build a board_state array with two identical legendary permanents, testing if the Rust iteration loop successfully catches the duplicate names/controllers and triggers the Ruling::StateBasedAction.
-
-Working test prompt 1: `My opponent has a Grizzly Bears on the battlefield. I tap 3 Swamps and cast Murder targeting the Grizzly Bears. In response, my opponent taps 2 Islands and casts Counterspell targeting my Murder. We both pass priority until the stack is empty. Walk me through exactly what happens.`
-
-Test prompt 2: `My opponent has a Centaur Courser on the battlefield. I cast Shock targeting the Centaur Courser. We both pass priority until the stack is empty. Then, I cast Gut Shot targeting the same Centaur Courser. We both pass priority until the stack is empty. Walk me through the resolution and the final board state.`
+*Example Prompt:*
+> "I have an Urza, Lord High Artificer on the battlefield. I cast a second Urza, Lord High Artificer. What happens?"
+
+### Streamlit UI (The Judge Interface)
+Run the web dashboard to visually inspect game states and manipulate the battlefield:
+```bash
+task ui
+```
+
+### Testing
+Run both the Python FFI integration tests and the internal Rust core tests:
+```bash
+task test
+```
+
+### Code Quality (Linting & Formatting)
+```bash
+task lint
+task fmt
+```
 
 ## Disclaimer
 
-Unofficial Fan Content Policy This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
+Unofficial Fan Content Policy: This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.

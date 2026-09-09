@@ -59,6 +59,7 @@
         "python.defaultInterpreterPath": ".venv/bin/python"
       },
       "extensions": [
+        "saoudrizwan.claude-dev",
         "rust-lang.rust-analyzer",  // Official Rust Language Server
         "vadimcn.vscode-lldb",      // Native debugger (Critical for Rust)
         "tamasfe.even-better-toml", // Best TOML support

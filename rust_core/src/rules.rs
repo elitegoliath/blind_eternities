@@ -4,7 +4,9 @@
 // This file contains pure functions. They take data in and return a verdict.
 // They do not talk to a database or the internet; they just compute "Magic Physics."
 
-use crate::models::{Target, Effect, Card, CardType, GameAction, GameState, ManaPool, Permanent, Phase, Ruling};
+use crate::models::{
+    Card, CardType, Effect, GameAction, GameState, ManaPool, Permanent, Phase, Ruling, Target,
+};
 
 pub struct Judge;
 
@@ -12,17 +14,19 @@ impl Judge {
     /// The Main Loop: Checks for any violations or triggers
     pub fn assess_state(state: &GameState) -> Vec<Ruling> {
         let mut rulings = Vec::new();
-        
+
         // Check Player Actions
         // "Can I actually do this thing I'm trying to do?"
         if let Some(action) = &state.pending_action {
             match action {
                 GameAction::PlayLand(card) => {
                     rulings.push(Self::check_land_drop(state, card));
-                },
+                }
                 GameAction::CastSpell { card, targets } => {
                     // 1. Check Targets First!
-                    if let Some(target_violation) = Self::check_targets(state, &state.active_player, targets) {
+                    if let Some(target_violation) =
+                        Self::check_targets(state, &state.active_player, targets)
+                    {
                         rulings.push(target_violation);
                     } else {
                         // 2. Check Timing (Only if targets are valid)
@@ -30,13 +34,19 @@ impl Judge {
                         if let Ruling::Illegal(_) = timing {
                             rulings.push(timing);
                         } else {
-                            // 3. Check Mana 
+                            // 3. Check Mana
                             rulings.push(Self::check_mana_cost(state, card));
                         }
                     }
-                },
-                GameAction::ActivateAbility { source_id: _, ability_index: _, targets } => {
-                    if let Some(target_violation) = Self::check_targets(state, &state.active_player, targets) {
+                }
+                GameAction::ActivateAbility {
+                    source_id: _,
+                    ability_index: _,
+                    targets,
+                } => {
+                    if let Some(target_violation) =
+                        Self::check_targets(state, &state.active_player, targets)
+                    {
                         rulings.push(target_violation);
                     }
                     // Future: Implement ability cost and timing checks
@@ -72,38 +82,49 @@ impl Judge {
                 GameAction::PlayLand(card) => {
                     // Update Limits
                     state.lands_played += 1;
-                    
+
                     // Create Permanent
                     let perm = Permanent::from_card(
-                        &card, 
-                        state.active_player.clone(), 
-                        state.battlefield.len()
+                        &card,
+                        state.active_player.clone(),
+                        state.battlefield.len(),
                     );
                     state.battlefield.push(perm);
-                },
+                }
                 GameAction::CastSpell { card, targets } => {
                     // Calculate Cost again
-                    let (generic, cost_pool) = crate::models::ManaPool::from_cost_string(&card.mana_cost)
-                        .map_err(|e| e)?; 
-                    
+                    let (generic, cost_pool) =
+                        crate::models::ManaPool::from_cost_string(&card.mana_cost)
+                            .map_err(|e| e)?;
+
                     // Pay Mana (Mutates Pool)
                     if !state.mana_pool.pay(&cost_pool, generic) {
-                        return Err("CRITICAL: Mana validation passed but payment failed.".to_string());
+                        return Err(
+                            "CRITICAL: Mana validation passed but payment failed.".to_string()
+                        );
                     }
 
                     // Move to Stack as a fully realized StackObject
-                    let stack_id = format!("spell-{}-{}", card.name.replace(" ", "").to_lowercase(), state.stack.len());
-                    
+                    let stack_id = format!(
+                        "spell-{}-{}",
+                        card.name.replace(" ", "").to_lowercase(),
+                        state.stack.len()
+                    );
+
                     let spell = crate::models::StackObject {
                         id: stack_id,
                         card,
                         controller: state.active_player.clone(),
                         targets,
                     };
-                    
+
                     state.stack.push(spell);
-                },
-                GameAction::ActivateAbility { source_id: _, ability_index: _, targets: _ } => {
+                }
+                GameAction::ActivateAbility {
+                    source_id: _,
+                    ability_index: _,
+                    targets: _,
+                } => {
                     // Future: Pay ability costs and put a StackObject (Ability) on the stack
                 }
             }
@@ -115,16 +136,24 @@ impl Judge {
     }
 
     /// Helper: Does a player have Hexproof or Shroud?
-    fn player_has_protection(state: &GameState, target_player: &str, source_controller: &str) -> bool {
+    fn player_has_protection(
+        state: &GameState,
+        target_player: &str,
+        source_controller: &str,
+    ) -> bool {
         state.battlefield.iter().any(|perm| {
             // Did this player's permanent grant them protection?
             if perm.controller == target_player {
                 let text = perm.oracle_text.to_lowercase();
                 let has_shroud = text.contains("you have shroud");
                 let has_hexproof = text.contains("you have hexproof");
-                
-                if has_shroud { return true; }
-                if has_hexproof && target_player != source_controller { return true; }
+
+                if has_shroud {
+                    return true;
+                }
+                if has_hexproof && target_player != source_controller {
+                    return true;
+                }
             }
             false
         })
@@ -132,8 +161,14 @@ impl Judge {
 
     /// Re-evaluates targets upon resolution (CR 608.2b)
     /// Returns true if at least ONE target is still legal.
-    fn are_targets_still_legal(state: &GameState, controller: &str, targets: &[crate::models::Target]) -> bool {
-        if targets.is_empty() { return true; } // Spells without targets always resolve
+    fn are_targets_still_legal(
+        state: &GameState,
+        controller: &str,
+        targets: &[crate::models::Target],
+    ) -> bool {
+        if targets.is_empty() {
+            return true;
+        } // Spells without targets always resolve
 
         let mut legal_count = 0;
 
@@ -151,18 +186,20 @@ impl Judge {
                             legal_count += 1;
                         }
                     }
-                },
+                }
                 Target::StackObject(id) => {
                     if state.stack.iter().any(|obj| obj.id == *id) {
                         legal_count += 1;
                     }
-                },
+                }
                 Target::Player(name) => {
                     if !Self::player_has_protection(state, name, controller) {
                         legal_count += 1;
                     }
-                },
-                _ => { legal_count += 1; }
+                }
+                _ => {
+                    legal_count += 1;
+                }
             }
         }
 
@@ -174,16 +211,26 @@ impl Judge {
         let top = state.stack.pop().ok_or("The stack is already empty.")?;
 
         if !Self::are_targets_still_legal(state, &top.controller, &top.targets) {
-            return Ok(format!("Spell '{}' fizzled because all targets became illegal.", top.card.name));
+            return Ok(format!(
+                "Spell '{}' fizzled because all targets became illegal.",
+                top.card.name
+            ));
         }
 
         let mut effect_msgs = Vec::new();
-        let is_permanent = top.card.type_line.iter().any(|t| 
-            matches!(t, CardType::Creature | CardType::Artifact | CardType::Enchantment | CardType::Planeswalker)
-        );
+        let is_permanent = top.card.type_line.iter().any(|t| {
+            matches!(
+                t,
+                CardType::Creature
+                    | CardType::Artifact
+                    | CardType::Enchantment
+                    | CardType::Planeswalker
+            )
+        });
 
         if is_permanent {
-            let perm = Permanent::from_card(&top.card, top.controller.clone(), state.battlefield.len());
+            let perm =
+                Permanent::from_card(&top.card, top.controller.clone(), state.battlefield.len());
             state.battlefield.push(perm);
             effect_msgs.push(format!("{} entered the battlefield.", top.card.name));
         } else {
@@ -193,9 +240,12 @@ impl Judge {
                     Effect::DealDamage { amount } => {
                         for target in &top.targets {
                             if let Target::Permanent(id) = target {
-                                if let Some(perm) = state.battlefield.iter_mut().find(|p| p.id == *id) {
+                                if let Some(perm) =
+                                    state.battlefield.iter_mut().find(|p| p.id == *id)
+                                {
                                     perm.damage_marked += amount;
-                                    effect_msgs.push(format!("Dealt {} damage to {}.", amount, perm.name));
+                                    effect_msgs
+                                        .push(format!("Dealt {} damage to {}.", amount, perm.name));
                                 }
                             }
                         }
@@ -206,18 +256,23 @@ impl Judge {
                             // Match the tuple variant which only contains the ID string
                             if let Target::Permanent(target_id) = target {
                                 let original_len = state.battlefield.len();
-                                
+
                                 // Quickly grab the name of the permanent before we delete it (for the return message)
-                                let target_name = state.battlefield.iter()
+                                let target_name = state
+                                    .battlefield
+                                    .iter()
                                     .find(|p| p.id == *target_id)
                                     .map(|p| p.name.clone())
                                     .unwrap_or_else(|| "permanent".to_string());
-                                
+
                                 // Retain everything that does NOT match the target_id
                                 state.battlefield.retain(|p| p.id != *target_id);
-                                
+
                                 if state.battlefield.len() < original_len {
-                                    return Ok(format!("{} resolved. Destroyed {}.", top.card.name, target_name));
+                                    return Ok(format!(
+                                        "{} resolved. Destroyed {}.",
+                                        top.card.name, target_name
+                                    ));
                                 }
                             }
                         }
@@ -225,25 +280,33 @@ impl Judge {
                     Effect::DrawCards { amount } => {
                         // TODO: Future architecture will pop off the deck array and push to the hand array.
                         // For now, we just validate the action and report the game state change.
-                        return Ok(format!("{} resolved. Player draws {} card(s).", top.card.name, amount));
+                        return Ok(format!(
+                            "{} resolved. Player draws {} card(s).",
+                            top.card.name, amount
+                        ));
                     }
                     Effect::Counter => {
                         if let Some(target) = top.targets.first() {
                             // Match the StackObject tuple variant which holds the spell's ID string
                             if let Target::StackObject(target_id) = target {
                                 let original_len = state.stack.len();
-                                
+
                                 // Grab the name of the spell we are countering for the return message
-                                let countered_name = state.stack.iter()
+                                let countered_name = state
+                                    .stack
+                                    .iter()
                                     .find(|spell| spell.id == *target_id)
                                     .map(|spell| spell.card.name.clone())
                                     .unwrap_or_else(|| "spell".to_string());
-                                
+
                                 // Retain everything on the stack that does NOT match the target_id
                                 state.stack.retain(|spell| spell.id != *target_id);
-                                
+
                                 if state.stack.len() < original_len {
-                                    return Ok(format!("{} resolved. Countered {}.", top.card.name, countered_name));
+                                    return Ok(format!(
+                                        "{} resolved. Countered {}.",
+                                        top.card.name, countered_name
+                                    ));
                                 } else {
                                     return Ok(format!("{} resolved, but its target was no longer on the stack (Fizzled).", top.card.name));
                                 }
@@ -258,36 +321,55 @@ impl Judge {
         let sba_msgs = Self::enforce_sbas(state);
         effect_msgs.extend(sba_msgs);
 
-        Ok(format!("{} resolved. {}", top.card.name, effect_msgs.join(" ")))
+        Ok(format!(
+            "{} resolved. {}",
+            top.card.name,
+            effect_msgs.join(" ")
+        ))
     }
 
     /// Internal Logic: Parameterized Land Drops
     fn check_land_drop(state: &GameState, card: &Card) -> Ruling {
-        if !card.type_line.contains(&CardType::Land) { return Ruling::Illegal("Not a Land".into()); }
-        if !state.is_active_player { return Ruling::Illegal("Not your turn".into()); }
-        if !state.stack.is_empty() { return Ruling::Illegal("Stack not empty".into()); }
-        
-        // Read the limit from config
-        if state.lands_played >= state.rules_config.max_lands_per_turn { 
-            return Ruling::Illegal(format!("Land limit of {} reached", state.rules_config.max_lands_per_turn)); 
+        if !card.type_line.contains(&CardType::Land) {
+            return Ruling::Illegal("Not a Land".into());
         }
-        
+        if !state.is_active_player {
+            return Ruling::Illegal("Not your turn".into());
+        }
+        if !state.stack.is_empty() {
+            return Ruling::Illegal("Stack not empty".into());
+        }
+
+        // Read the limit from config
+        if state.lands_played >= state.rules_config.max_lands_per_turn {
+            return Ruling::Illegal(format!(
+                "Land limit of {} reached",
+                state.rules_config.max_lands_per_turn
+            ));
+        }
+
         match state.phase {
             Phase::Main1 | Phase::Main2 => Ruling::Legal,
-            _ => Ruling::Illegal("Wrong Phase".into())
+            _ => Ruling::Illegal("Wrong Phase".into()),
         }
     }
 
     /// Internal Logic: Casting a Spell (Timing Rules)
     fn check_cast_timing(state: &GameState, card: &Card) -> Ruling {
         let is_instant = card.type_line.contains(&CardType::Instant);
-        if is_instant { return Ruling::Legal; }
+        if is_instant {
+            return Ruling::Legal;
+        }
         // Sorcery Speed Checks
-        if !state.is_active_player { return Ruling::Illegal("Not your turn".into()); }
-        if !state.stack.is_empty() { return Ruling::Illegal("Stack not empty".into()); }
+        if !state.is_active_player {
+            return Ruling::Illegal("Not your turn".into());
+        }
+        if !state.stack.is_empty() {
+            return Ruling::Illegal("Stack not empty".into());
+        }
         match state.phase {
             Phase::Main1 | Phase::Main2 => Ruling::Legal,
-            _ => Ruling::Illegal("Wrong Phase".into())
+            _ => Ruling::Illegal("Wrong Phase".into()),
         }
     }
 
@@ -309,55 +391,72 @@ impl Judge {
     }
 
     /// Internal Logic: Target Legality (CR 601.2c)
-    fn check_targets(state: &GameState, source_controller: &str, targets: &[crate::models::Target]) -> Option<Ruling> {
+    fn check_targets(
+        state: &GameState,
+        source_controller: &str,
+        targets: &[crate::models::Target],
+    ) -> Option<Ruling> {
         for target in targets {
             match target {
                 Target::Permanent(id) => {
                     // 1. Does it exist?
                     let target_perm = state.battlefield.iter().find(|p| p.id == *id);
-                    
+
                     if let Some(perm) = target_perm {
                         // 2. Check Targeting Restrictions (Shroud & Hexproof)
                         let text = perm.oracle_text.to_lowercase();
-                        
+
                         if text.contains("shroud") {
                             return Some(Ruling::Illegal(format!(
-                                "Invalid target: '{}' has Shroud and cannot be targeted.", perm.name
+                                "Invalid target: '{}' has Shroud and cannot be targeted.",
+                                perm.name
                             )));
                         }
-                        
+
                         if text.contains("hexproof") && perm.controller != source_controller {
                             return Some(Ruling::Illegal(format!(
                                 "Invalid target: '{}' has Hexproof and cannot be targeted by spells controlled by an opponent.", perm.name
                             )));
                         }
-                        
+
                         // Future: Check "Protection from [Color]" here
                     } else {
-                        return Some(Ruling::Illegal(format!("Target permanent ID '{}' not found on the battlefield.", id)));
+                        return Some(Ruling::Illegal(format!(
+                            "Target permanent ID '{}' not found on the battlefield.",
+                            id
+                        )));
                     }
-                },
+                }
                 Target::StackObject(id) => {
                     // Used for Counterspells, Forks, etc.
                     if !state.stack.iter().any(|obj| obj.id == *id) {
-                        return Some(Ruling::Illegal(format!("Target spell ID '{}' not found on the stack.", id)));
+                        return Some(Ruling::Illegal(format!(
+                            "Target spell ID '{}' not found on the stack.",
+                            id
+                        )));
                     }
-                },
+                }
                 Target::Player(name) => {
                     // Verify the player exists (for now, hardcoded string check)
                     if name != "Player" && name != "Opponent" {
-                        return Some(Ruling::Illegal(format!("Invalid player target: '{}'.", name)));
+                        return Some(Ruling::Illegal(format!(
+                            "Invalid player target: '{}'.",
+                            name
+                        )));
                     }
                     if Self::player_has_protection(state, name, source_controller) {
-                        return Some(Ruling::Illegal(format!("Invalid target: '{}' has Hexproof or Shroud.", name)));
+                        return Some(Ruling::Illegal(format!(
+                            "Invalid target: '{}' has Hexproof or Shroud.",
+                            name
+                        )));
                     }
-                },
+                }
                 Target::ZoneCard(_) => {
                     // Future: Graveyard or Exile targets (e.g., Reanimate)
                 }
             }
         }
-        
+
         // If we looped through all targets and found no violations, it's clean.
         None
     }
@@ -365,22 +464,29 @@ impl Judge {
     /// Actively sweeps the board and removes permanents that violate state (CR 704)
     pub fn enforce_sbas(state: &mut GameState) -> Vec<String> {
         let mut messages = Vec::new();
-        let mut seen_legends: std::collections::HashMap<(String, String), usize> = std::collections::HashMap::new();
+        let mut seen_legends: std::collections::HashMap<(String, String), usize> =
+            std::collections::HashMap::new();
         let mut i = 0;
 
         while i < state.battlefield.len() {
             let mut should_remove = false;
             let perm = &state.battlefield[i].clone(); // Clone for safe reading
-            
+
             // 1. Lethal Damage (AUTOMATIC EXECUTION)
             let is_creature = perm.types.contains(&CardType::Creature);
             if is_creature && (perm.toughness <= 0 || perm.damage_marked >= perm.toughness as u32) {
-                messages.push(format!("{} was destroyed by state-based actions.", perm.name));
+                messages.push(format!(
+                    "{} was destroyed by state-based actions.",
+                    perm.name
+                ));
                 should_remove = true;
             }
 
             // 2. The Legend Rule (CHOICE REQUIRED)
-            if !should_remove && state.rules_config.legend_rule_enabled && perm.types.contains(&CardType::Legendary) {
+            if !should_remove
+                && state.rules_config.legend_rule_enabled
+                && perm.types.contains(&CardType::Legendary)
+            {
                 let scope_key = if state.rules_config.legend_scope == "controller" {
                     (perm.name.clone(), perm.controller.clone())
                 } else {
@@ -403,7 +509,7 @@ impl Judge {
                 i += 1;
             }
         }
-        
+
         messages
     }
 
@@ -415,7 +521,7 @@ impl Judge {
         // Assuming a 2-player game: if both players pass in succession
         if state.consecutive_passes >= 2 {
             state.consecutive_passes = 0; // Reset for the next interaction
-            
+
             if !state.stack.is_empty() {
                 // CR 117.4: If all players pass, resolve the top spell on the stack
                 return Judge::resolve_top(state);
@@ -425,7 +531,7 @@ impl Judge {
                 return Ok("Stack is empty. Proceeding to next phase/step.".to_string());
             }
         }
-        
+
         Ok("Priority passed to the next player.".to_string())
     }
 }

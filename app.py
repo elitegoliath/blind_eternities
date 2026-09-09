@@ -1,7 +1,6 @@
 import streamlit as st
 import mtg_logic_core
 import json
-import time
 
 st.set_page_config(page_title="Blind Eternities Core", layout="wide")
 
