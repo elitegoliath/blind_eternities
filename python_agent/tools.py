@@ -11,6 +11,7 @@ from pathlib import Path
 import ast
 from typing import Any, Optional
 from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 import mtg_logic_core  # type: ignore # <--- This is the compiled Rust code!
 
 # Initialize the models outside the function so they stay hot in memory
@@ -19,33 +20,6 @@ embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
 db = lancedb.connect("/app/data/lancedb")  # Maps to the Docker volume mount
 
 CURRENT_DIR = Path(__file__).parent
-STATE_FILE = CURRENT_DIR / "game_session.json"
-
-def load_game_state() -> dict:
-    """Loads the current game state from disk, or returns a fresh board."""
-    if STATE_FILE.exists():
-        try:
-            with open(STATE_FILE, "r") as f:
-                return json.load(f)
-        except json.JSONDecodeError:
-            pass
-            
-    # Default starting state
-    return {
-        "active_player": "Player",
-        "is_active_player": True,
-        "phase": "Main Phase 1",
-        "battlefield": [],
-        "stack": [],
-        "lands_played": 0,
-        "mana_pool": {"w": 0, "u": 0, "b": 0, "r": 0, "g": 0, "c": 0},
-        "consecutive_passes": 0
-    }
-
-def save_game_state(state_dict: dict):
-    """Saves the mutated game state back to disk."""
-    with open(STATE_FILE, "w") as f:
-        json.dump(state_dict, f, indent=2)
 
 def _parse_oracle_to_effects(oracle_text: str) -> list:
     """
@@ -459,7 +433,7 @@ def resolve_stack(
 
 
 @tool
-def cast_spell(card_name: str, targets: str = "[]") -> dict:
+def cast_spell(card_name: str, targets: str = "[]", config: RunnableConfig = None) -> dict:
     """
     Casts a spell by putting it on the stack. It DOES NOT resolve the spell.
     
@@ -469,7 +443,12 @@ def cast_spell(card_name: str, targets: str = "[]") -> dict:
     """
     print(f"\n[DEBUG] 🛠️ Casting {card_name} onto the stack")
     
-    state = load_game_state()
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
     
     # 1. Fetch real card data autonomously (using your existing functions)
     cached = _lookup_card_direct(card_name)
@@ -503,7 +482,7 @@ def cast_spell(card_name: str, targets: str = "[]") -> dict:
     # CRITICAL: Taking an action breaks the chain of succession
     state["consecutive_passes"] = 0  
     
-    save_game_state(state)
+    state_store.save_state(session_id, state)
     
     return {
         "status": "success",
@@ -512,14 +491,19 @@ def cast_spell(card_name: str, targets: str = "[]") -> dict:
     }
 
 @tool
-def pass_priority() -> dict:
+def pass_priority(config: RunnableConfig = None) -> dict:
     """
     Passes priority to the next player. 
     If all players pass, the engine resolves the top spell on the stack.
     """
     print("\n[DEBUG] 🛠️ Passing priority...")
     
-    state = load_game_state()
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
     
     if "consecutive_passes" not in state:
         state["consecutive_passes"] = 0
@@ -531,7 +515,7 @@ def pass_priority() -> dict:
         
         if ruling.get("status") == "success":
             new_state = ruling.get("new_state", state)
-            save_game_state(new_state)
+            state_store.save_state(session_id, new_state)
             
             return {
                 "status": "success",

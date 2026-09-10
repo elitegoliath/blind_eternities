@@ -82,7 +82,8 @@ fn check_board_state(json_payload: String) -> PyResult<String> {
         }
     };
 
-    let rulings = Judge::assess_state(&state);
+    let judge = Judge::default_engine();
+    let rulings = judge.assess_state(&state);
 
     let response = rulings
         .iter()
@@ -196,7 +197,8 @@ fn apply_action(json_payload: String) -> PyResult<String> {
     };
 
     // 2. Apply Action (Mutates State)
-    match Judge::apply_action(&mut state) {
+    let judge = Judge::default_engine();
+    match judge.apply_action(&mut state) {
         Ok(_) => {
             // 3. Serialize New State
             // We return the entire modified state wrapper
@@ -229,7 +231,8 @@ fn resolve_stack_top(json_payload: String) -> PyResult<String> {
         }
     };
 
-    match Judge::resolve_top(&mut state) {
+    let judge = Judge::default_engine();
+    match judge.resolve_top(&mut state) {
         Ok(resolution_msg) => {
             state.run_sba_loop();
             Ok(json!({
@@ -254,7 +257,8 @@ fn pass_priority_endpoint(state_json: String) -> PyResult<String> {
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
     // 2. Execute priority logic
-    let message = match Judge::pass_priority(&mut state) {
+    let judge = Judge::default_engine();
+    let message = match judge.pass_priority(&mut state) {
         Ok(msg) => msg,
         Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
     };

@@ -33,7 +33,7 @@ def get_llm(temperature: float = 0.0) -> ChatOllama:
     print(f"[DEBUG] 🧠 Connecting to local LLM at {local_base_url}")
 
     return ChatOllama(
-        model=os.getenv("LLM_MODEL_NAME", "gemma2:27b"),
+        model=os.getenv("LLM_MODEL_NAME", "qwen3:9b"),
         base_url="http://llm-engine:11434", 
         temperature=temperature
     )

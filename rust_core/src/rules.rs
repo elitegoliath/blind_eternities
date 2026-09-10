@@ -8,65 +8,102 @@ use crate::models::{
     Card, CardType, Effect, GameAction, GameState, ManaPool, Permanent, Phase, Ruling, Target,
 };
 
-pub struct Judge;
+pub trait RuleValidator: Send + Sync {
+    fn assess_action(&self, _state: &GameState, _action: &GameAction) -> Vec<Ruling> {
+        Vec::new()
+    }
+    fn enforce_sbas(&self, _state: &mut GameState) -> Vec<String> {
+        Vec::new()
+    }
+}
 
-impl Judge {
-    /// The Main Loop: Checks for any violations or triggers
-    pub fn assess_state(state: &GameState) -> Vec<Ruling> {
+pub struct DefaultActionValidator;
+impl RuleValidator for DefaultActionValidator {
+    fn assess_action(&self, state: &GameState, action: &GameAction) -> Vec<Ruling> {
         let mut rulings = Vec::new();
-
-        // Check Player Actions
-        // "Can I actually do this thing I'm trying to do?"
-        if let Some(action) = &state.pending_action {
-            match action {
-                GameAction::PlayLand(card) => {
-                    rulings.push(Self::check_land_drop(state, card));
-                }
-                GameAction::CastSpell { card, targets } => {
-                    // 1. Check Targets First!
-                    if let Some(target_violation) =
-                        Self::check_targets(state, &state.active_player, targets)
-                    {
-                        rulings.push(target_violation);
+        match action {
+            GameAction::PlayLand(card) => {
+                rulings.push(Judge::check_land_drop(state, card));
+            }
+            GameAction::CastSpell { card, targets } => {
+                if let Some(target_violation) =
+                    Judge::check_targets(state, &state.active_player, targets)
+                {
+                    rulings.push(target_violation);
+                } else {
+                    let timing = Judge::check_cast_timing(state, card);
+                    if let Ruling::Illegal(_) = timing {
+                        rulings.push(timing);
                     } else {
-                        // 2. Check Timing (Only if targets are valid)
-                        let timing = Self::check_cast_timing(state, card);
-                        if let Ruling::Illegal(_) = timing {
-                            rulings.push(timing);
-                        } else {
-                            // 3. Check Mana
-                            rulings.push(Self::check_mana_cost(state, card));
-                        }
+                        rulings.push(Judge::check_mana_cost(state, card));
                     }
-                }
-                GameAction::ActivateAbility {
-                    source_id: _,
-                    ability_index: _,
-                    targets,
-                } => {
-                    if let Some(target_violation) =
-                        Self::check_targets(state, &state.active_player, targets)
-                    {
-                        rulings.push(target_violation);
-                    }
-                    // Future: Implement ability cost and timing checks
                 }
             }
+            GameAction::ActivateAbility { targets, .. } => {
+                if let Some(target_violation) =
+                    Judge::check_targets(state, &state.active_player, targets)
+                {
+                    rulings.push(target_violation);
+                }
+            }
+            GameAction::Custom(_) => {}
         }
+        rulings
+    }
+}
 
-        // If no errors were found, default to Legal
-        if rulings.is_empty() {
+pub struct DefaultSBAValidator;
+impl RuleValidator for DefaultSBAValidator {
+    fn enforce_sbas(&self, state: &mut GameState) -> Vec<String> {
+        Judge::default_enforce_sbas(state)
+    }
+}
+
+pub struct Judge {
+    pub validators: Vec<Box<dyn RuleValidator>>,
+}
+
+impl Judge {
+    pub fn new(validators: Vec<Box<dyn RuleValidator>>) -> Self {
+        Self { validators }
+    }
+
+    pub fn default_engine() -> Self {
+        Self {
+            validators: vec![
+                Box::new(DefaultActionValidator),
+                Box::new(DefaultSBAValidator),
+            ],
+        }
+    }
+    /// The Main Loop: Checks for any violations or triggers
+    pub fn assess_state(&self, state: &GameState) -> Vec<Ruling> {
+        let mut rulings = Vec::new();
+        if let Some(action) = &state.pending_action {
+            for v in &self.validators {
+                rulings.extend(v.assess_action(state, action));
+            }
+        }
+        
+        let mut final_rulings = Vec::new();
+        for r in rulings {
+            if r != Ruling::Legal {
+                final_rulings.push(r);
+            }
+        }
+        
+        if final_rulings.is_empty() {
             vec![Ruling::Legal]
         } else {
-            rulings
+            final_rulings
         }
     }
 
     /// Validation + Execution
     /// Returns Ok(NewState) or Err(Reason)
-    pub fn apply_action(state: &mut GameState) -> Result<(), String> {
+    pub fn apply_action(&self, state: &mut GameState) -> Result<(), String> {
         // 1. Verify Legality First
-        let rulings = Self::assess_state(state);
+        let rulings = self.assess_state(state);
         for r in rulings {
             if let Ruling::Illegal(reason) = r {
                 return Err(reason);
@@ -127,8 +164,10 @@ impl Judge {
                 } => {
                     // Future: Pay ability costs and put a StackObject (Ability) on the stack
                 }
+                GameAction::Custom(_) => {}
             }
         }
+
 
         // 3. Cleanup
         state.pending_action = None;
@@ -207,7 +246,7 @@ impl Judge {
     }
 
     /// Pops the top of the stack and resolves it
-    pub fn resolve_top(state: &mut GameState) -> Result<String, String> {
+    pub fn resolve_top(&self, state: &mut GameState) -> Result<String, String> {
         let top = state.stack.pop().ok_or("The stack is already empty.")?;
 
         if !Self::are_targets_still_legal(state, &top.controller, &top.targets) {
@@ -313,12 +352,13 @@ impl Judge {
                             }
                         }
                     }
+                    Effect::Custom(_) => {}
                 }
             }
         }
 
         // CR 117.5: Enforce SBAs immediately after ANY spell resolves (Permanent or Spell)
-        let sba_msgs = Self::enforce_sbas(state);
+        let sba_msgs = self.enforce_sbas(state);
         effect_msgs.extend(sba_msgs);
 
         Ok(format!(
@@ -454,6 +494,7 @@ impl Judge {
                 Target::ZoneCard(_) => {
                     // Future: Graveyard or Exile targets (e.g., Reanimate)
                 }
+                Target::Custom(_) => {}
             }
         }
 
@@ -462,7 +503,7 @@ impl Judge {
     }
 
     /// Actively sweeps the board and removes permanents that violate state (CR 704)
-    pub fn enforce_sbas(state: &mut GameState) -> Vec<String> {
+    pub fn default_enforce_sbas(state: &mut GameState) -> Vec<String> {
         let mut messages = Vec::new();
         let mut seen_legends: std::collections::HashMap<(String, String), usize> =
             std::collections::HashMap::new();
@@ -470,9 +511,8 @@ impl Judge {
 
         while i < state.battlefield.len() {
             let mut should_remove = false;
-            let perm = &state.battlefield[i].clone(); // Clone for safe reading
+            let perm = &state.battlefield[i].clone();
 
-            // 1. Lethal Damage (AUTOMATIC EXECUTION)
             let is_creature = perm.types.contains(&CardType::Creature);
             if is_creature && (perm.toughness <= 0 || perm.damage_marked >= perm.toughness as u32) {
                 messages.push(format!(
@@ -482,7 +522,6 @@ impl Judge {
                 should_remove = true;
             }
 
-            // 2. The Legend Rule (CHOICE REQUIRED)
             if !should_remove
                 && state.rules_config.legend_rule_enabled
                 && perm.types.contains(&CardType::Legendary)
@@ -497,24 +536,29 @@ impl Judge {
                 *count += 1;
 
                 if *count > state.rules_config.legend_max_allowed {
-                    // DO NOT DELETE IT. Just scream at the LLM to ask the player.
                     messages.push(format!("ACTION REQUIRED: Legend Rule violation for {}. Player must choose which one to keep and put the rest into the graveyard.", perm.name));
                 }
             }
 
-            // Execute Removal (Only for Automatic SBAs like damage)
             if should_remove {
                 state.battlefield.remove(i);
             } else {
                 i += 1;
             }
         }
-
         messages
     }
 
+    pub fn enforce_sbas(&self, state: &mut GameState) -> Vec<String> {
+        let mut msgs = Vec::new();
+        for v in &self.validators {
+            msgs.extend(v.enforce_sbas(state));
+        }
+        msgs
+    }
+
     // This function manages the priority sequence
-    pub fn pass_priority(state: &mut GameState) -> Result<String, String> {
+    pub fn pass_priority(&self, state: &mut GameState) -> Result<String, String> {
         // Increment the counter every time a player passes
         state.consecutive_passes += 1;
 
@@ -524,7 +568,7 @@ impl Judge {
 
             if !state.stack.is_empty() {
                 // CR 117.4: If all players pass, resolve the top spell on the stack
-                return Judge::resolve_top(state);
+                return self.resolve_top(state);
             } else {
                 // CR 117.4: If the stack is empty and all players pass, advance the phase
                 // (Phase transition logic will be built out later)

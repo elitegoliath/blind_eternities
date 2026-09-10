@@ -32,8 +32,8 @@ services:
       -c "
       echo 'Waiting for Ollama engine to wake up...';
       while ! ollama list > /dev/null 2>&1; do sleep 2; done;
-      echo 'Pulling gemma2:27b (this will take a few minutes on first run)...';
-      ollama pull gemma2:27b;
+      echo 'Pulling qwen3:9b (this will take a few minutes on first run)...';
+      ollama pull qwen3:9b;
       echo 'Model is locked and loaded!';
       "
 
@@ -48,7 +48,7 @@ services:
       - OPENAI_API_KEY=not-needed-for-local
       - LLM_BASE_URL=http://llm-engine:11434/v1
       # Tell LangChain exactly which Ollama model to request
-      - LLM_MODEL_NAME=gemma2:27b
+      - LLM_MODEL_NAME=qwen3:9b
     volumes:
       # Maps the local ./data folder to the container's /app/data folder
       - ./data:/app/data

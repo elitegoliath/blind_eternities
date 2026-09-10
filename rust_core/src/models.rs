@@ -16,6 +16,8 @@ pub enum Effect {
     Destroy, // No extra fields needed, it just targets
     DrawCards { amount: u32 },
     Counter,
+    #[serde(untagged)]
+    Custom(serde_json::Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Hash, Clone)]
@@ -41,6 +43,8 @@ pub enum CardType {
     Legendary,
     Basic,
     Unknown, // Safety fallback
+    #[serde(untagged)]
+    Custom(serde_json::Value),
 }
 
 // Replaces "String" phases with strict logical steps
@@ -56,6 +60,8 @@ pub enum Phase {
     #[serde(rename = "Main Phase 2")]
     Main2,
     End,
+    #[serde(untagged)]
+    Custom(serde_json::Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
@@ -80,6 +86,8 @@ pub enum GameAction {
         #[serde(default)]
         targets: Vec<Target>,
     },
+    #[serde(untagged)]
+    Custom(serde_json::Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
@@ -89,6 +97,8 @@ pub enum Target {
     Player(String),      // "Player" or "Opponent"
     StackObject(String), // Points to the `id` of a spell currently on the stack
     ZoneCard(String),    // Points to a card in a Graveyard or Exile
+    #[serde(untagged)]
+    Custom(serde_json::Value),
 }
 
 // The "Stack" object
