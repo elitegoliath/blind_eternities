@@ -5,6 +5,7 @@
 // the color "Purple," the code won't even compile (or deserialize).
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 // --- ENUMS ---
 
@@ -86,6 +87,12 @@ pub enum GameAction {
         #[serde(default)]
         targets: Vec<Target>,
     },
+    DeclareAttackers {
+        attackers: Vec<String>,
+    },
+    DeclareBlockers {
+        blockers: HashMap<String, Vec<String>>,
+    },
     #[serde(untagged)]
     Custom(serde_json::Value),
 }
@@ -106,10 +113,12 @@ pub enum Target {
 pub struct StackObject {
     #[serde(default = "generate_fallback_id")]
     pub id: String, // Every spell needs a UUID so it can be targeted by Counterspells
-    pub card: Card, // The base card data
+    pub card: Card, // The base card data (or ability dummy card)
     pub controller: String,
     #[serde(default)]
     pub targets: Vec<Target>, // The things the spell is pointing at
+    #[serde(default)]
+    pub source_id: Option<String>, // If it's an ability, points to the permanent
 }
 
 // The "Mana" system
@@ -228,6 +237,8 @@ pub struct Card {
     #[serde(default)]
     pub mana_cost: String,
     #[serde(default)]
+    pub oracle_text: String,
+    #[serde(default)]
     pub effects: Vec<Effect>, // The LLM will populate this!
 }
 
@@ -261,6 +272,14 @@ pub struct Permanent {
     pub power: i32,
     #[serde(default)]
     pub toughness: i32,
+    
+    // Missing additions
+    #[serde(default)]
+    pub base_power: i32,
+    #[serde(default)]
+    pub base_toughness: i32,
+    #[serde(default)]
+    pub counters: std::collections::HashMap<String, u32>,
 }
 
 fn generate_fallback_id() -> String {
@@ -294,6 +313,9 @@ impl Permanent {
             damage_marked: 0,
             power: 0,
             toughness: 0,
+            base_power: 0,
+            base_toughness: 0,
+            counters: HashMap::new(),
         }
     }
 }
@@ -346,6 +368,17 @@ pub struct GameState {
     pub phase: Phase,
     pub battlefield: Vec<Permanent>,
     pub stack: Vec<StackObject>,
+    
+    // Missing Mechanics Additions
+    #[serde(default)]
+    pub graveyard: Vec<Card>,
+    #[serde(default)]
+    pub exile: Vec<Card>,
+    #[serde(default)]
+    pub attackers: Vec<String>, // IDs of attacking permanents
+    #[serde(default)]
+    pub blockers: HashMap<String, Vec<String>>, // Attacker ID -> Blockers
+
     pub lands_played: u8, // Crucial for Land Logic
 
     #[serde(default)]
@@ -362,23 +395,39 @@ impl GameState {
     /// Returns true if any actions were taken (meaning we need to loop and check again).
     pub fn check_state_based_actions(&mut self) -> bool {
         let original_count = self.battlefield.len();
+        
+        let mut to_graveyard = Vec::new();
 
         // `retain` keeps only the elements where the closure returns true.
         // If it returns false, the permanent is destroyed/put into the graveyard.
         self.battlefield.retain(|permanent| {
             // Since toughness is i32, we can safely check if it is 0 or less.
-            let zero_or_less_toughness = permanent.toughness <= 0;
+            let zero_or_less_toughness = permanent.toughness <= 0 && permanent.types.contains(&CardType::Creature);
 
             // We need to cast damage_marked to i32 for the comparison.
-            let lethal_damage = (permanent.damage_marked as i32) >= permanent.toughness;
+            let lethal_damage = (permanent.damage_marked as i32) >= permanent.toughness && permanent.types.contains(&CardType::Creature);
+            
+            // Planeswalker legality
+            let zero_loyalty = permanent.types.contains(&CardType::Planeswalker) && *permanent.counters.get("Loyalty").unwrap_or(&0) == 0;
 
-            if lethal_damage || zero_or_less_toughness {
+            if lethal_damage || zero_or_less_toughness || zero_loyalty {
                 // Return false to drop the permanent from the vector (send to graveyard)
+                
+                // Reconstruct a base card for the graveyard
+                to_graveyard.push(Card {
+                    name: permanent.name.clone(),
+                    type_line: permanent.types.clone(),
+                    mana_cost: "".to_string(), // Incomplete reconstruction for graveyard right now, but functional
+                    oracle_text: permanent.oracle_text.clone(),
+                    effects: vec![],
+                });
                 return false;
             }
 
             true // Keep the permanent alive
         });
+        
+        self.graveyard.extend(to_graveyard);
 
         // If the length changed, an SBA occurred.
         self.battlefield.len() < original_count

@@ -1,0 +1,45 @@
+{
+  "active_player": "Player",
+  "battlefield": [
+    {
+      "colors": [],
+      "controller": "Player",
+      "damage_marked": 0,
+      "id": "perm-urza,lordhighartificer-0",
+      "is_legendary": true,
+      "is_tapped": false,
+      "mana_value": 0,
+      "name": "Urza, Lord High Artificer",
+      "oracle_text": "When Urza enters, create a 0/0 colorless Construct artifact creature token with \"This token gets +1/+1 for each artifact you control.\"\nTap an untapped artifact you control: Add {U}.\n{5}: Shuffle your library, then exile the top card. Until end of turn, you may play that card without paying its mana cost.",
+      "power": 0,
+      "toughness": 1,
+      "types": [
+        "Legendary",
+        "Creature",
+        "\u2014",
+        "Human",
+        "Artificer"
+      ]
+    }
+  ],
+  "consecutive_passes": 0,
+  "is_active_player": true,
+  "lands_played": 0,
+  "mana_pool": {
+    "black": 0,
+    "blue": 2,
+    "colorless": 2,
+    "green": 0,
+    "red": 0,
+    "white": 0
+  },
+  "pending_action": null,
+  "phase": "Main Phase 1",
+  "rules_config": {
+    "legend_max_allowed": 1,
+    "legend_rule_enabled": true,
+    "legend_scope": "controller",
+    "max_lands_per_turn": 1
+  },
+  "stack": []
+}

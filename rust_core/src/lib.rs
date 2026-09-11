@@ -200,6 +200,7 @@ fn apply_action(json_payload: String) -> PyResult<String> {
     let judge = Judge::default_engine();
     match judge.apply_action(&mut state) {
         Ok(_) => {
+            state.run_sba_loop();
             // 3. Serialize New State
             // We return the entire modified state wrapper
             Ok(json!({
@@ -258,6 +259,7 @@ fn pass_priority_endpoint(state_json: String) -> PyResult<String> {
 
     // 2. Execute priority logic
     let judge = Judge::default_engine();
+    state.run_sba_loop();
     let message = match judge.pass_priority(&mut state) {
         Ok(msg) => msg,
         Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),

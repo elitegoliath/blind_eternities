@@ -34,7 +34,7 @@ def get_llm(temperature: float = 0.0) -> ChatOllama:
 
     return ChatOllama(
         model=os.getenv("LLM_MODEL_NAME", "qwen3:9b"),
-        base_url="http://llm-engine:11434", 
+        base_url=local_base_url, 
         temperature=temperature
     )
 

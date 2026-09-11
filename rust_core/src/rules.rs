@@ -46,6 +46,8 @@ impl RuleValidator for DefaultActionValidator {
                     rulings.push(target_violation);
                 }
             }
+            GameAction::DeclareAttackers { attackers: _ } => {}
+            GameAction::DeclareBlockers { blockers: _ } => {}
             GameAction::Custom(_) => {}
         }
         rulings
@@ -150,9 +152,10 @@ impl Judge {
 
                     let spell = crate::models::StackObject {
                         id: stack_id,
-                        card,
+                        card: card.clone(),
                         controller: state.active_player.clone(),
-                        targets,
+                        targets: targets.clone(),
+                        source_id: None,
                     };
 
                     state.stack.push(spell);
@@ -163,6 +166,12 @@ impl Judge {
                     targets: _,
                 } => {
                     // Future: Pay ability costs and put a StackObject (Ability) on the stack
+                }
+                GameAction::DeclareAttackers { attackers } => {
+                    state.attackers = attackers.clone();
+                }
+                GameAction::DeclareBlockers { blockers } => {
+                    state.blockers = blockers.clone();
                 }
                 GameAction::Custom(_) => {}
             }

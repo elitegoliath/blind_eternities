@@ -39,7 +39,8 @@ class BlindEternitiesAgent:
         self.pre_action = pre_action
         self.post_action = post_action
 
-        self.tools = [fetch_card, cast_spell, pass_priority]
+        from python_agent.tools import fetch_card, cast_spell, pass_priority, spawn_permanent, add_mana, activate_ability, declare_attackers, declare_blockers
+        self.tools = [fetch_card, cast_spell, pass_priority, spawn_permanent, add_mana, activate_ability, declare_attackers, declare_blockers]
         self.llm = get_llm().bind_tools(self.tools)
         
         self.app = self._build_graph()

@@ -17,7 +17,9 @@ import mtg_logic_core  # type: ignore # <--- This is the compiled Rust code!
 # Initialize the models outside the function so they stay hot in memory
 print("[DEBUG] 📚 Loading FastEmbed Model and LanceDB...")
 embed_model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
-db = lancedb.connect("/app/data/lancedb")  # Maps to the Docker volume mount
+import os
+db_path = os.getenv("LANCEDB_URI", "./data/lancedb")
+db = lancedb.connect(db_path)  # Maps to the Docker volume mount
 
 CURRENT_DIR = Path(__file__).parent
 
@@ -435,60 +437,68 @@ def resolve_stack(
 @tool
 def cast_spell(card_name: str, targets: str = "[]", config: RunnableConfig = None) -> dict:
     """
-    Casts a spell by putting it on the stack. It DOES NOT resolve the spell.
-    
+    Casts a spell by putting it on the stack.
+
     Args:
         card_name: The exact name of the card.
         targets: A stringified JSON list. You MUST use this exact format: '[{"type": "Permanent", "id": "bear-1"}]'. Do NOT pass a plain string.
     """
     print(f"\n[DEBUG] 🛠️ Casting {card_name} onto the stack")
-    
+
     session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
     state_store = config.get("configurable", {}).get("state_store")
     if not state_store:
         from .state_store import LocalJSONStateStore
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
-    
-    # 1. Fetch real card data autonomously (using your existing functions)
+
+    # 1. Fetch real card data autonomously
     cached = _lookup_card_direct(card_name)
     mana_cost = cached.get("mana_cost", "{0}") if cached else "{0}"
     type_line = cached.get("type_line", ["Unknown"]) if cached else ["Unknown"]
     oracle_text = cached.get("oracle_text", "") if cached else ""
-    
+
     parsed_effects = _parse_oracle_to_effects(oracle_text)
     parsed_targets = _clean_json_param(targets)
 
-    # 2. Construct the stack object
-    spell_object = {
-        "id": f"spell-{hash(card_name) % 10000}",
-        "controller": state.get("active_player", "Player"),
-        "targets": parsed_targets,
+    # 2. Construct the Action Object
+    action_payload = {
+        "type": "CastSpell",
         "card": {
             "name": card_name,
             "type_line": type_line,
             "mana_cost": mana_cost,
             "oracle_text": oracle_text,
             "effects": parsed_effects
-        }
+        },
+        "targets": parsed_targets
     }
-    
-    # 3. Push to stack and RESET priority passes
-    if "stack" not in state:
-        state["stack"] = []
-    
-    state["stack"].append(spell_object)
-    
-    # CRITICAL: Taking an action breaks the chain of succession
-    state["consecutive_passes"] = 0  
-    
-    state_store.save_state(session_id, state)
-    
-    return {
-        "status": "success",
-        "message": f"{card_name} placed on the stack with ID '{spell_object['id']}'. Priority passes to opponent.",
-        "stack_size": len(state["stack"])
-    }
+
+    state["pending_action"] = action_payload
+
+    try:
+        # Hit the Rust endpoint for validation and application
+        ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
+        ruling = json.loads(ruling_raw)
+
+        if ruling.get("status") == "success":
+            new_state = ruling.get("new_state", state)
+            # CRITICAL: Taking an action breaks the chain of succession
+            new_state["consecutive_passes"] = 0
+            state_store.save_state(session_id, new_state)
+
+            stack = new_state.get("stack", [])
+            last_spell_id = stack[-1]["id"] if stack else "unknown"
+
+            return {
+                "status": "success",
+                "message": f"{card_name} placed on the stack with ID '{last_spell_id}'. Priority passes to opponent.",
+                "stack_size": len(stack)
+            }
+        else:
+            return {"status": "illegal", "reason": ruling.get("reason", "Unknown legality error.")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
 @tool
 def pass_priority(config: RunnableConfig = None) -> dict:
@@ -525,5 +535,384 @@ def pass_priority(config: RunnableConfig = None) -> dict:
         else:
             return {"status": "error", "message": ruling.get("message", "Engine error")}
             
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+@tool
+def spawn_permanent(card_name: str, controller: str = "Player", config: RunnableConfig = None) -> dict:
+    """
+    Directly spawns a permanent onto the battlefield for scenario setup.
+    Bypasses the stack and mana costs.
+    
+    Args:
+        card_name: The exact name of the card to spawn.
+        controller: "Player" or "Opponent"
+    """
+    print(f"\n[DEBUG] 🛠️ Spawning {card_name} for {controller}")
+    
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
+    
+    cached = _lookup_card_direct(card_name)
+    mana_cost = cached.get("mana_cost", "{0}") if cached else "{0}"
+    type_line = cached.get("type_line", ["Unknown"]) if cached else ["Unknown"]
+    oracle_text = cached.get("oracle_text", "") if cached else ""
+    
+    if "battlefield" not in state:
+        state["battlefield"] = []
+        
+    perm_id = f"perm-{card_name.replace(' ', '').lower()}-{len(state['battlefield'])}"
+    
+    permanent = {
+        "id": perm_id,
+        "name": card_name,
+        "controller": controller,
+        "types": type_line,
+        "oracle_text": oracle_text,
+        "is_tapped": False,
+        "damage_marked": 0,
+        "power": 0,  # Could parse this later
+        "toughness": 1,
+        "mana_value": 0,
+        "colors": [],
+        "is_legendary": "Legendary" in type_line
+    }
+    
+    state["battlefield"].append(permanent)
+    state_store.save_state(session_id, state)
+    
+    return {
+        "status": "success",
+        "message": f"{card_name} spawned on the battlefield for {controller} with ID '{perm_id}'.",
+        "id": perm_id
+    }
+
+@tool
+def add_mana(mana_string: str, config: RunnableConfig = None) -> dict:
+    """
+    Adds mana to the active player's mana pool for scenario setup.
+    
+    Args:
+        mana_string: A string representing the mana to add (e.g., "{W}{U}{B}{R}{G}{2}").
+    """
+    print(f"\n[DEBUG] 🛠️ Adding {mana_string} to mana pool")
+    
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
+    
+    if "mana_pool" not in state:
+        state["mana_pool"] = {"white": 0, "blue": 0, "black": 0, "red": 0, "green": 0, "colorless": 0}
+    else:
+        # Ensure all keys exist
+        for key in ["white", "blue", "black", "red", "green", "colorless"]:
+            if key not in state["mana_pool"]:
+                state["mana_pool"][key] = 0
+        
+    # Simple parsing logic
+    import re
+    tokens = re.findall(r'{([^}]+)}', mana_string)
+    
+    for token in tokens:
+        token = token.upper()
+        if token == 'W': state["mana_pool"]["white"] += 1
+        elif token == 'U': state["mana_pool"]["blue"] += 1
+        elif token == 'B': state["mana_pool"]["black"] += 1
+        elif token == 'R': state["mana_pool"]["red"] += 1
+        elif token == 'G': state["mana_pool"]["green"] += 1
+        elif token == 'C': state["mana_pool"]["colorless"] += 1
+        elif token.isdigit(): state["mana_pool"]["colorless"] += int(token)
+        
+    state_store.save_state(session_id, state)
+    
+    return {
+        "status": "success",
+        "message": f"Added {mana_string} to mana pool.",
+        "mana_pool": state["mana_pool"]
+    }
+
+@tool
+def activate_ability(source_id: str, ability_index: int, targets: str = "[]", config: RunnableConfig = None) -> dict:
+    """
+    Activates an ability of a permanent on the battlefield.
+    
+    Args:
+        source_id: The exact ID of the permanent on the battlefield.
+        ability_index: The zero-based index of the ability on the card.
+        targets: A stringified JSON list of targets (e.g., '[{"type": "Player", "id": "Opponent"}]').
+    """
+    print(f"\n[DEBUG] 🛠️ Activating ability {ability_index} of {source_id}")
+    
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
+    
+    parsed_targets = _clean_json_param(targets)
+    
+    action_payload = {
+        "type": "ActivateAbility",
+        "source_id": source_id,
+        "ability_index": ability_index,
+        "targets": parsed_targets
+    }
+    
+    state["pending_action"] = action_payload
+    
+    try:
+        ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
+        ruling = json.loads(ruling_raw)
+        
+        if ruling.get("status") == "success":
+            new_state = ruling.get("new_state", state)
+            new_state["consecutive_passes"] = 0
+            state_store.save_state(session_id, new_state)
+            
+            stack = new_state.get("stack", [])
+            return {
+                "status": "success",
+                "message": f"Ability {ability_index} of {source_id} placed on the stack.",
+                "stack_size": len(stack)
+            }
+        else:
+            return {"status": "illegal", "reason": ruling.get("reason", "Unknown legality error.")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@tool
+def declare_attackers(attackers: str = "[]", config: RunnableConfig = None) -> dict:
+    """
+    Declares attackers during the combat phase.
+    
+    Args:
+        attackers: A stringified JSON list of permanent IDs representing the attacking creatures.
+                   Example: '["perm-bear-1", "perm-goblin-2"]'
+    """
+    print(f"\n[DEBUG] 🛠️ Declaring attackers: {attackers}")
+    
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
+    
+    import json
+    try:
+        parsed_attackers = json.loads(attackers)
+    except:
+        parsed_attackers = []
+        
+    action_payload = {
+        "type": "DeclareAttackers",
+        "attackers": parsed_attackers
+    }
+    
+    state["pending_action"] = action_payload
+    
+    try:
+        ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
+        ruling = json.loads(ruling_raw)
+        
+        if ruling.get("status") == "success":
+            new_state = ruling.get("new_state", state)
+            new_state["consecutive_passes"] = 0
+            state_store.save_state(session_id, new_state)
+            return {"status": "success", "message": f"Attackers declared."}
+        else:
+            return {"status": "illegal", "reason": ruling.get("reason", "Unknown legality error.")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@tool
+def declare_blockers(blockers: str = "{}", config: RunnableConfig = None) -> dict:
+    """
+    Declares blockers during the combat phase.
+    
+    Args:
+        blockers: A stringified JSON object mapping attacker IDs to a list of blocker IDs.
+                  Example: '{"perm-bear-1": ["perm-wall-2"]}'
+    """
+    print(f"\n[DEBUG] 🛠️ Declaring blockers: {blockers}")
+    
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
+    
+    import json
+    try:
+        parsed_blockers = json.loads(blockers)
+    except:
+        parsed_blockers = {}
+        
+    action_payload = {
+        "type": "DeclareBlockers",
+        "blockers": parsed_blockers
+    }
+    
+    state["pending_action"] = action_payload
+    
+    try:
+        ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
+        ruling = json.loads(ruling_raw)
+        
+        if ruling.get("status") == "success":
+            new_state = ruling.get("new_state", state)
+            new_state["consecutive_passes"] = 0
+            state_store.save_state(session_id, new_state)
+            return {"status": "success", "message": f"Blockers declared."}
+        else:
+            return {"status": "illegal", "reason": ruling.get("reason", "Unknown legality error.")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@tool
+def activate_ability(source_id: str, ability_index: int, targets: str = "[]", config: RunnableConfig = None) -> dict:
+    """
+    Activates an ability of a permanent on the battlefield.
+    
+    Args:
+        source_id: The exact ID of the permanent on the battlefield.
+        ability_index: The zero-based index of the ability on the card.
+        targets: A stringified JSON list of targets (e.g., '[{"type": "Player", "id": "Opponent"}]').
+    """
+    print(f"\n[DEBUG] 🛠️ Activating ability {ability_index} of {source_id}")
+    
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
+    
+    parsed_targets = _clean_json_param(targets)
+    
+    action_payload = {
+        "type": "ActivateAbility",
+        "source_id": source_id,
+        "ability_index": ability_index,
+        "targets": parsed_targets
+    }
+    
+    state["pending_action"] = action_payload
+    
+    try:
+        ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
+        ruling = json.loads(ruling_raw)
+        
+        if ruling.get("status") == "success":
+            new_state = ruling.get("new_state", state)
+            new_state["consecutive_passes"] = 0
+            state_store.save_state(session_id, new_state)
+            
+            stack = new_state.get("stack", [])
+            return {
+                "status": "success",
+                "message": f"Ability {ability_index} of {source_id} placed on the stack.",
+                "stack_size": len(stack)
+            }
+        else:
+            return {"status": "illegal", "reason": ruling.get("reason", "Unknown legality error.")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@tool
+def declare_attackers(attackers: str = "[]", config: RunnableConfig = None) -> dict:
+    """
+    Declares attackers during the combat phase.
+    
+    Args:
+        attackers: A stringified JSON list of permanent IDs representing the attacking creatures.
+                   Example: '["perm-bear-1", "perm-goblin-2"]'
+    """
+    print(f"\n[DEBUG] 🛠️ Declaring attackers: {attackers}")
+    
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
+    
+    import json
+    try:
+        parsed_attackers = json.loads(attackers)
+    except:
+        parsed_attackers = []
+        
+    action_payload = {
+        "type": "DeclareAttackers",
+        "attackers": parsed_attackers
+    }
+    
+    state["pending_action"] = action_payload
+    
+    try:
+        ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
+        ruling = json.loads(ruling_raw)
+        
+        if ruling.get("status") == "success":
+            new_state = ruling.get("new_state", state)
+            new_state["consecutive_passes"] = 0
+            state_store.save_state(session_id, new_state)
+            return {"status": "success", "message": f"Attackers declared."}
+        else:
+            return {"status": "illegal", "reason": ruling.get("reason", "Unknown legality error.")}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@tool
+def declare_blockers(blockers: str = "{}", config: RunnableConfig = None) -> dict:
+    """
+    Declares blockers during the combat phase.
+    
+    Args:
+        blockers: A stringified JSON object mapping attacker IDs to a list of blocker IDs.
+                  Example: '{"perm-bear-1": ["perm-wall-2"]}'
+    """
+    print(f"\n[DEBUG] 🛠️ Declaring blockers: {blockers}")
+    
+    session_id = config.get("configurable", {}).get("session_id", "default") if config else "default"
+    state_store = config.get("configurable", {}).get("state_store")
+    if not state_store:
+        from .state_store import LocalJSONStateStore
+        state_store = LocalJSONStateStore()
+    state = state_store.load_state(session_id)
+    
+    import json
+    try:
+        parsed_blockers = json.loads(blockers)
+    except:
+        parsed_blockers = {}
+        
+    action_payload = {
+        "type": "DeclareBlockers",
+        "blockers": parsed_blockers
+    }
+    
+    state["pending_action"] = action_payload
+    
+    try:
+        ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
+        ruling = json.loads(ruling_raw)
+        
+        if ruling.get("status") == "success":
+            new_state = ruling.get("new_state", state)
+            new_state["consecutive_passes"] = 0
+            state_store.save_state(session_id, new_state)
+            return {"status": "success", "message": f"Blockers declared."}
+        else:
+            return {"status": "illegal", "reason": ruling.get("reason", "Unknown legality error.")}
     except Exception as e:
         return {"status": "error", "message": str(e)}
