@@ -1,18 +1,38 @@
 # python_agent/main.py
-import json
-import ast
 import asyncio
+import time
+import requests
+from typing import TypedDict, Annotated, Sequence, AsyncGenerator
+
+def _wait_for_ollama():
+    print(">>> Waiting for Ollama model to be ready...")
+    import os
+    url = f"{os.getenv('LLM_BASE_URL', 'http://llm-engine:11434').replace('/v1', '')}/api/tags"
+    target_model = os.getenv('LLM_MODEL_NAME', 'qwen2.5:7b')
+    for _ in range(60): # Wait up to 2 minutes (60 * 2s)
+        try:
+            resp = requests.get(url)
+            if resp.status_code == 200:
+                models = [m['name'] for m in resp.json().get('models', [])]
+                if any(target_model in m for m in models) or any(m in target_model for m in models):
+                    print(f">>> Model {target_model} found!")
+                    return
+        except Exception:
+            pass
+        time.sleep(2)
+    print(">>> WARNING: Ollama model check timed out. Proceeding anyway...")
+
+
 from typing import TypedDict, Annotated, Sequence, AsyncGenerator
 
 from dotenv import load_dotenv
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, AIMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import StateGraph, END, add_messages
 from langgraph.prebuilt import ToolNode
 
 # Import local modules
 from python_agent.llm_engine import get_llm, SYSTEM_PROMPT
-from python_agent.tools import fetch_card, cast_spell, pass_priority
 from python_agent.interfaces import StateStoreBackend, LLMInterceptor, AgentMiddleware
 from python_agent.state_store import LocalJSONStateStore
 from python_agent.interceptors import QwenToolInterceptor
@@ -34,13 +54,14 @@ class BlindEternitiesAgent:
         pre_action: AgentMiddleware = None,
         post_action: AgentMiddleware = None
     ):
+        _wait_for_ollama()
         self.state_store = state_store or LocalJSONStateStore()
         self.interceptor = interceptor or QwenToolInterceptor()
         self.pre_action = pre_action
         self.post_action = post_action
 
-        from python_agent.tools import fetch_card, cast_spell, pass_priority, spawn_permanent, add_mana, activate_ability, declare_attackers, declare_blockers
-        self.tools = [fetch_card, cast_spell, pass_priority, spawn_permanent, add_mana, activate_ability, declare_attackers, declare_blockers]
+        from python_agent.tools import fetch_card, cast_spell, pass_priority, spawn_permanent, add_mana, activate_ability, declare_attackers, declare_blockers, resolve_combat_damage
+        self.tools = [fetch_card, cast_spell, pass_priority, spawn_permanent, add_mana, activate_ability, declare_attackers, declare_blockers, resolve_combat_damage]
         self.llm = get_llm().bind_tools(self.tools)
         
         self.app = self._build_graph()

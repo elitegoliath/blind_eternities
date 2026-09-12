@@ -275,6 +275,27 @@ fn pass_priority_endpoint(state_json: String) -> PyResult<String> {
     Ok(serde_json::to_string(&response).unwrap())
 }
 
+#[pyfunction]
+fn resolve_combat_damage_endpoint(state_json: String) -> PyResult<String> {
+    let mut state: GameState = serde_json::from_str(&state_json)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    let message = match Judge::resolve_combat_damage(&mut state) {
+        Ok(msg) => msg,
+        Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
+    };
+    
+    state.run_sba_loop();
+
+    let response = serde_json::json!({
+        "status": "success",
+        "message": message,
+        "new_state": state
+    });
+
+    Ok(serde_json::to_string(&response).unwrap())
+}
+
 #[pymodule]
 fn mtg_logic_core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_board_state, m)?)?;
@@ -282,5 +303,6 @@ fn mtg_logic_core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(apply_action, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_stack_top, m)?)?;
     m.add_function(wrap_pyfunction!(pass_priority_endpoint, m)?)?;
+    m.add_function(wrap_pyfunction!(resolve_combat_damage_endpoint, m)?)?;
     Ok(())
 }

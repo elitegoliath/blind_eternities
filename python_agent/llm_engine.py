@@ -28,12 +28,12 @@ def get_llm(temperature: float = 0.0) -> ChatOllama:
 
     # Set this to the port your host runner (Ollama, LM Studio, vLLM) is using.
     # E.g., 11434 for Ollama, 1234 for LM Studio.
-    local_base_url = os.getenv("LLM_BASE_URL", "http://llm-engine:11434")
+    local_base_url = os.getenv("LLM_BASE_URL", "http://localhost:11434")
 
     print(f"[DEBUG] 🧠 Connecting to local LLM at {local_base_url}")
 
     return ChatOllama(
-        model=os.getenv("LLM_MODEL_NAME", "qwen3:9b"),
+        model=os.getenv("LLM_MODEL_NAME", "qwen2.5:7b"),
         base_url=local_base_url, 
         temperature=temperature
     )

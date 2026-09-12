@@ -161,11 +161,31 @@ impl Judge {
                     state.stack.push(spell);
                 }
                 GameAction::ActivateAbility {
-                    source_id: _,
-                    ability_index: _,
-                    targets: _,
+                    source_id,
+                    ability_index,
+                    targets,
                 } => {
-                    // Future: Pay ability costs and put a StackObject (Ability) on the stack
+                    if let Some(perm) = state.battlefield.iter().find(|p| p.id == *source_id) {
+                        let ability_card = crate::models::Card {
+                            name: format!("Ability {} of {}", ability_index, perm.name),
+                            type_line: vec![crate::models::CardType::Unknown],
+                            mana_cost: "".to_string(),
+                            oracle_text: "Activated Ability".to_string(),
+                            effects: vec![],
+                        };
+
+                        let stack_id = format!("ability-{}-{}", source_id, state.stack.len());
+                        let ability_obj = crate::models::StackObject {
+                            id: stack_id,
+                            card: ability_card,
+                            controller: state.active_player.clone(),
+                            targets: targets.clone(),
+                            source_id: Some(source_id.clone()),
+                        };
+                        state.stack.push(ability_obj);
+                    } else {
+                        return Err(format!("Permanent with id '{}' not found.", source_id));
+                    }
                 }
                 GameAction::DeclareAttackers { attackers } => {
                     state.attackers = attackers.clone();
@@ -364,6 +384,8 @@ impl Judge {
                     Effect::Custom(_) => {}
                 }
             }
+            // Put Instant/Sorcery in graveyard
+            state.graveyard.push(top.card.clone());
         }
 
         // CR 117.5: Enforce SBAs immediately after ANY spell resolves (Permanent or Spell)
@@ -509,6 +531,87 @@ impl Judge {
 
         // If we looped through all targets and found no violations, it's clean.
         None
+    }
+
+    /// Actively sweeps the board and removes permanents that violate state (CR 704)
+    pub fn resolve_combat_damage(state: &mut GameState) -> Result<String, String> {
+        let mut effect_msgs = Vec::new();
+        
+        // Quick copy of combatants to avoid borrow checker issues when mutating damage
+        let attackers = state.attackers.clone();
+        let blockers_map = state.blockers.clone();
+        
+        for attacker_id in &attackers {
+            // Find attacker
+            let attacker_power = if let Some(a) = state.battlefield.iter().find(|p| &p.id == attacker_id) {
+                a.power
+            } else {
+                continue; // Attacker died or vanished
+            };
+            
+            let blockers = blockers_map.get(attacker_id);
+            
+            if let Some(blks) = blockers {
+                if !blks.is_empty() {
+                    // Blocked!
+                    // Attacker deals damage to blockers. We distribute greedily for now.
+                    let mut remaining_power = attacker_power;
+                    
+                    for blocker_id in blks {
+                        let mut blocker_power = 0;
+                        if let Some(b) = state.battlefield.iter_mut().find(|p| &p.id == blocker_id) {
+                            blocker_power = b.power;
+                            if remaining_power > 0 {
+                                // Assign damage up to toughness or remaining power
+                                let lethal = b.toughness - b.damage_marked as i32;
+                                let damage_to_deal = if lethal > 0 { 
+                                    remaining_power.min(lethal) 
+                                } else { 
+                                    remaining_power 
+                                };
+                                
+                                b.damage_marked += damage_to_deal as u32;
+                                remaining_power -= damage_to_deal;
+                            }
+                        }
+                        
+                        // Blocker deals damage back
+                        if blocker_power > 0 {
+                            if let Some(a) = state.battlefield.iter_mut().find(|p| &p.id == attacker_id) {
+                                a.damage_marked += blocker_power as u32;
+                            }
+                        }
+                    }
+                    effect_msgs.push(format!("Combat damage resolved for {}.", attacker_id));
+                    continue;
+                }
+            }
+            
+            // Unblocked! Deals damage to opponent
+            // Retrieve controller to figure out who is defending
+            let mut attacker_name = "".to_string();
+            let mut controller = "".to_string();
+            if let Some(a) = state.battlefield.iter().find(|p| &p.id == attacker_id) {
+                attacker_name = a.name.clone();
+                controller = a.controller.clone();
+            }
+            
+            let defending_player = if controller == "Player" { "Opponent" } else { "Player" };
+            
+            if let Some(life) = state.life_totals.get_mut(defending_player) {
+                *life -= attacker_power;
+                effect_msgs.push(format!("{} dealt {} damage to {}.", attacker_name, attacker_power, defending_player));
+            }
+        }
+        
+        state.attackers.clear();
+        state.blockers.clear();
+        
+        if effect_msgs.is_empty() {
+            Ok("No combat damage was dealt.".to_string())
+        } else {
+            Ok(effect_msgs.join(" "))
+        }
     }
 
     /// Actively sweeps the board and removes permanents that violate state (CR 704)

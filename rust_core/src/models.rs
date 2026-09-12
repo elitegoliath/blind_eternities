@@ -338,6 +338,12 @@ pub struct RulesConfig {
 fn default_true() -> bool {
     true
 }
+fn default_life_totals() -> HashMap<String, i32> {
+    let mut m = HashMap::new();
+    m.insert("Player".to_string(), 20);
+    m.insert("Opponent".to_string(), 20);
+    m
+}
 fn default_legend_max() -> usize {
     1
 }
@@ -359,12 +365,30 @@ impl Default for RulesConfig {
     }
 }
 
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type")]
+pub enum ContinuousEffect {
+    GlobalBuff {
+        card_types: Vec<CardType>,
+        power_mod: i32,
+        toughness_mod: i32,
+        controller: Option<String>,
+    },
+    // Add more as needed
+}
+
+// The "State Container"
 // --- THE STATE CONTAINER ---
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
     pub active_player: String,  // "Player" or "Opponent"
     pub is_active_player: bool, // Helper bool: Is it actually MY turn?
+    
+    #[serde(default = "default_life_totals")]
+    pub life_totals: HashMap<String, i32>,
+    
     pub phase: Phase,
     pub battlefield: Vec<Permanent>,
     pub stack: Vec<StackObject>,
@@ -388,6 +412,9 @@ pub struct GameState {
     #[serde(default)] // Fallback to defaults if Python omits it
     pub rules_config: RulesConfig,
     pub consecutive_passes: u8,
+
+    #[serde(default)]
+    pub continuous_effects: Vec<ContinuousEffect>,
 }
 
 impl GameState {
@@ -435,10 +462,45 @@ impl GameState {
 
     /// The MTG Rules dictate that SBAs loop until the board is completely clean.
     pub fn run_sba_loop(&mut self) {
+        self.recalculate_stats();
         while self.check_state_based_actions() {
             // Loop runs until check_state_based_actions() returns false.
-            // This handles domino effects (e.g., an anthem creature dies,
-            // lowering toughness of other creatures, causing them to die on the next pass).
+        }
+    }
+
+    /// Layer 7 Calculation
+    pub fn recalculate_stats(&mut self) {
+        // Reset to base stats + counters
+        for perm in &mut self.battlefield {
+            perm.power = perm.base_power;
+            perm.toughness = perm.base_toughness;
+            
+            // Apply +1/+1 counters
+            let plus_counters = perm.counters.get("+1/+1").unwrap_or(&0);
+            perm.power += *plus_counters as i32;
+            perm.toughness += *plus_counters as i32;
+            
+            let minus_counters = perm.counters.get("-1/-1").unwrap_or(&0);
+            perm.power -= *minus_counters as i32;
+            perm.toughness -= *minus_counters as i32;
+        }
+
+        // Apply global continuous effects
+        for effect in &self.continuous_effects {
+            match effect {
+                ContinuousEffect::GlobalBuff { card_types, power_mod, toughness_mod, controller } => {
+                    for perm in &mut self.battlefield {
+                        // Check if it matches types
+                        let matches_type = card_types.iter().all(|ct| perm.types.contains(ct));
+                        let matches_controller = controller.as_ref().map_or(true, |c| perm.controller == *c);
+                        
+                        if matches_type && matches_controller {
+                            perm.power += power_mod;
+                            perm.toughness += toughness_mod;
+                        }
+                    }
+                }
+            }
         }
     }
 }

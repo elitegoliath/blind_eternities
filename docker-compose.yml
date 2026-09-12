@@ -27,13 +27,14 @@ services:
     environment:
       # Tell this temporary container to talk to the engine container
       - OLLAMA_HOST=llm-engine:11434
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-qwen2.5:7b}
     entrypoint: /bin/sh
     command: >
       -c "
       echo 'Waiting for Ollama engine to wake up...';
       while ! ollama list > /dev/null 2>&1; do sleep 2; done;
-      echo 'Pulling qwen3:9b (this will take a few minutes on first run)...';
-      ollama pull qwen3:9b;
+      echo \"Pulling $$LLM_MODEL_NAME (this will take a few minutes on first run)...\";
+      ollama pull $$LLM_MODEL_NAME;
       echo 'Model is locked and loaded!';
       "
 
@@ -46,9 +47,9 @@ services:
       # Tell the container to not wait to print to the terminal
       - PYTHONUNBUFFERED=1
       - OPENAI_API_KEY=not-needed-for-local
-      - LLM_BASE_URL=http://llm-engine:11434/v1
+      - LLM_BASE_URL=http://llm-engine:11434
       # Tell LangChain exactly which Ollama model to request
-      - LLM_MODEL_NAME=qwen3:9b
+      - LLM_MODEL_NAME=${LLM_MODEL_NAME:-qwen2.5:7b}
     volumes:
       # Maps the local ./data folder to the container's /app/data folder
       - ./data:/app/data

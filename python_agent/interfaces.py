@@ -1,5 +1,5 @@
 # python_agent/interfaces.py
-from typing import Protocol, Any, Dict
+from typing import Protocol
 
 class StateStoreBackend(Protocol):
     """Protocol for abstracting game state storage."""
