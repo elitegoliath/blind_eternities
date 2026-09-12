@@ -549,13 +549,15 @@ impl Judge {
                 continue; // Attacker died or vanished
             };
             
+            let attacker_damage = std::cmp::max(0, attacker_power);
+            
             let blockers = blockers_map.get(attacker_id);
             
             if let Some(blks) = blockers {
                 if !blks.is_empty() {
                     // Blocked!
                     // Attacker deals damage to blockers. We distribute greedily for now.
-                    let mut remaining_power = attacker_power;
+                    let mut remaining_power = attacker_damage;
                     
                     for blocker_id in blks {
                         let mut blocker_power = 0;
@@ -567,7 +569,7 @@ impl Judge {
                                 let damage_to_deal = if lethal > 0 { 
                                     remaining_power.min(lethal) 
                                 } else { 
-                                    remaining_power 
+                                    0 
                                 };
                                 
                                 b.damage_marked += damage_to_deal as u32;
@@ -576,9 +578,10 @@ impl Judge {
                         }
                         
                         // Blocker deals damage back
-                        if blocker_power > 0 {
+                        let blocker_damage = std::cmp::max(0, blocker_power);
+                        if blocker_damage > 0 {
                             if let Some(a) = state.battlefield.iter_mut().find(|p| &p.id == attacker_id) {
-                                a.damage_marked += blocker_power as u32;
+                                a.damage_marked += blocker_damage as u32;
                             }
                         }
                     }
@@ -598,9 +601,11 @@ impl Judge {
             
             let defending_player = if controller == "Player" { "Opponent" } else { "Player" };
             
-            if let Some(life) = state.life_totals.get_mut(defending_player) {
-                *life -= attacker_power;
-                effect_msgs.push(format!("{} dealt {} damage to {}.", attacker_name, attacker_power, defending_player));
+            if attacker_damage > 0 {
+                if let Some(life) = state.life_totals.get_mut(defending_player) {
+                    *life -= attacker_damage;
+                    effect_msgs.push(format!("{} dealt {} damage to {}.", attacker_name, attacker_damage, defending_player));
+                }
             }
         }
         
