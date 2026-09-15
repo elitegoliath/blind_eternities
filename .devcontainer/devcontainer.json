@@ -4,6 +4,9 @@
   "remoteEnv": {
     "LANCEDB_URI": "./data/lancedb"
   },
+  "mounts": [
+    "source=vscode-extension-data,target=/home/vscode/.vscode-server,type=volume"
+  ],
   "features": {
     // 1. Install the Rust toolchain (Cargo, rustc)
     "ghcr.io/devcontainers/features/rust:1": {

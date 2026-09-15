@@ -23,6 +23,8 @@ use lancedb::query::{ExecutableQuery, QueryBase};
 use tokio::runtime::Runtime;
 
 mod models;
+mod events;
+mod triggers;
 mod rules;
 
 use models::{GameState, Ruling, EngineResponse};
@@ -205,7 +207,6 @@ fn apply_action(json_payload: String) -> PyResult<String> {
     let judge = Judge::default_engine();
     let resp = match judge.apply_action(&mut state) {
         Ok(msg) => {
-            state.run_sba_loop();
             // 3. Serialize New State
             EngineResponse {
                 success: true,
@@ -245,7 +246,6 @@ fn resolve_stack_top(json_payload: String) -> PyResult<String> {
     let judge = Judge::default_engine();
     match judge.resolve_top(&mut state) {
         Ok(resolution_msg) => {
-            state.run_sba_loop();
             Ok(json!({
                 "status": "success",
                 "message": resolution_msg,
@@ -269,7 +269,6 @@ fn pass_priority_endpoint(state_json: String) -> PyResult<String> {
 
     // 2. Execute priority logic
     let judge = Judge::default_engine();
-    state.run_sba_loop();
     let message = match judge.pass_priority(&mut state) {
         Ok(msg) => msg,
         Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
@@ -290,12 +289,11 @@ fn resolve_combat_damage_endpoint(state_json: String) -> PyResult<String> {
     let mut state: GameState = serde_json::from_str(&state_json)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
-    let message = match Judge::resolve_combat_damage(&mut state) {
+    let judge = Judge::default_engine();
+    let message = match judge.resolve_combat_damage(&mut state) {
         Ok(msg) => msg,
         Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
     };
-    
-    state.run_sba_loop();
 
     let response = serde_json::json!({
         "status": "success",

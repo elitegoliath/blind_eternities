@@ -9,6 +9,19 @@ use std::collections::HashMap;
 
 // --- ENUMS ---
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub enum TriggerCondition {
+    EntersBattlefield,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Ability {
+    Triggered {
+        condition: TriggerCondition,
+        effect: Effect,
+    },
+}
+
 // Define the Effect Enum
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -292,6 +305,8 @@ pub struct Permanent {
     pub base_toughness: i32,
     #[serde(default)]
     pub counters: std::collections::HashMap<String, u32>,
+    #[serde(default)]
+    pub abilities: Vec<Ability>,
 }
 
 fn generate_fallback_id() -> String {
@@ -328,6 +343,7 @@ impl Permanent {
             base_power: 0,
             base_toughness: 0,
             counters: HashMap::new(),
+            abilities: Vec::new(),
         }
     }
 }
@@ -426,6 +442,9 @@ pub struct GameState {
 
     #[serde(default)]
     pub continuous_effects: Vec<ContinuousEffect>,
+
+    #[serde(default)]
+    pub pending_triggers: Vec<crate::triggers::PendingTrigger>,
     
     pub pending_action: Option<GameAction>,
 
@@ -447,6 +466,34 @@ fn default_turn() -> u32 { 1 }
 
 impl GameState {
     /// Sweeps the board for State-Based Actions.
+
+    /// Emits a game event, triggering permanents to place effects into the pending_triggers queue
+    pub fn emit_event(&mut self, event: crate::events::GameEvent) {
+        let mut new_triggers = Vec::new();
+        match &event {
+            crate::events::GameEvent::ZoneChange { object_id, to_zone, .. } => {
+                if to_zone == "Battlefield" {
+                    if let Some(perm) = self.battlefield.iter().find(|p| &p.id == object_id) {
+                        for ability in &perm.abilities {
+                            if let Ability::Triggered { condition, effect } = ability {
+                                if *condition == TriggerCondition::EntersBattlefield {
+                                    new_triggers.push(crate::triggers::PendingTrigger {
+                                        source_id: perm.id.clone(),
+                                        controller: perm.controller.clone(),
+                                        effect: effect.clone(),
+                                        required_targets: 0,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        self.pending_triggers.extend(new_triggers);
+    }
+
     pub fn get_mana_pool(&self, player: &str) -> ManaPool {
         self.mana_pool.get(player).cloned().unwrap_or_default()
     }

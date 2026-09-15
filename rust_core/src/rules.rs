@@ -67,6 +67,7 @@ pub struct Judge {
 }
 
 impl Judge {
+    #[allow(dead_code)]
     pub fn new(validators: Vec<Box<dyn RuleValidator>>) -> Self {
         Self { validators }
     }
@@ -80,6 +81,82 @@ impl Judge {
         }
     }
     /// The Main Loop: Checks for any violations or triggers
+        /// Enforces CR 117.5: State-Based Actions and Triggered Abilities before priority.
+    pub fn enforce_sbas_and_triggers(&self, state: &mut GameState) {
+        loop {
+            // 2. Execute engine-level SBAs (e.g. lethal damage, 0 toughness)
+            state.run_sba_loop();
+            
+            // Execute validator-based SBAs (e.g. Legend Rule)
+            let _ = self.enforce_sbas(state);
+            
+            // 3. (Scaffold for later) Check for waiting Triggered Abilities
+            let triggers_added = self.put_waiting_triggers_on_stack(state);
+            
+            // 4. If triggers were placed on the stack, SBAs must be checked AGAIN
+            if !triggers_added {
+                break;
+            }
+        }
+    }
+
+    /// Helper for placing waiting triggers onto the stack (CR 603)
+    fn put_waiting_triggers_on_stack(&self, state: &mut GameState) -> bool {
+        if state.pending_triggers.is_empty() {
+            return false;
+        }
+
+        let mut ap_triggers = Vec::new();
+        let mut nap_triggers = Vec::new();
+
+        for trigger in state.pending_triggers.drain(..) {
+            if trigger.controller == state.active_player {
+                ap_triggers.push(trigger);
+            } else {
+                nap_triggers.push(trigger);
+            }
+        }
+
+        // Active Player triggers on stack first (resolve last)
+        // TODO: Handle simultaneous triggers controlled by the same player (let them choose order)
+        for (i, trigger) in ap_triggers.into_iter().enumerate() {
+            let card_dummy = crate::models::Card {
+                name: format!("Ability from {}", trigger.source_id),
+                mana_cost: "".to_string(),
+                type_line: vec![],
+                oracle_text: "".to_string(),
+                effects: vec![trigger.effect],
+            };
+            state.stack.push(crate::models::StackObject {
+                id: format!("trigger-{}-{}", trigger.source_id, i),
+                card: card_dummy,
+                controller: trigger.controller,
+                targets: vec![], 
+                source_id: Some(trigger.source_id),
+            });
+        }
+
+        // Non-Active Player triggers on stack next (resolve first)
+        for (i, trigger) in nap_triggers.into_iter().enumerate() {
+            let card_dummy = crate::models::Card {
+                name: format!("Ability from {}", trigger.source_id),
+                mana_cost: "".to_string(),
+                type_line: vec![],
+                oracle_text: "".to_string(),
+                effects: vec![trigger.effect],
+            };
+            state.stack.push(crate::models::StackObject {
+                id: format!("trigger-nap-{}-{}", trigger.source_id, i),
+                card: card_dummy,
+                controller: trigger.controller,
+                targets: vec![], 
+                source_id: Some(trigger.source_id),
+            });
+        }
+
+        true
+    }
+
     pub fn assess_state(&self, state: &GameState) -> Vec<Ruling> {
         let mut rulings = Vec::new();
         if let Some(action) = &state.pending_action {
@@ -205,6 +282,9 @@ impl Judge {
 
         // 3. Cleanup
         state.pending_action = None;
+        self.enforce_sbas_and_triggers(state);
+        state.priority_player = state.active_player.clone();
+        state.consecutive_passes = 0;
         Ok("Action successfully applied.".to_string())
     }
 
@@ -342,10 +422,7 @@ impl Judge {
                                 state.battlefield.retain(|p| p.id != *target_id);
 
                                 if state.battlefield.len() < original_len {
-                                    return Ok(format!(
-                                        "{} resolved. Destroyed {}.",
-                                        top.card.name, target_name
-                                    ));
+                                    effect_msgs.push(format!("Destroyed {}.", target_name));
                                 }
                             }
                         }
@@ -353,10 +430,7 @@ impl Judge {
                     Effect::DrawCards { amount } => {
                         // TODO: Future architecture will pop off the deck array and push to the hand array.
                         // For now, we just validate the action and report the game state change.
-                        return Ok(format!(
-                            "{} resolved. Player draws {} card(s).",
-                            top.card.name, amount
-                        ));
+                        effect_msgs.push(format!("Player draws {} card(s).", amount));
                     }
                     Effect::Counter => {
                         if let Some(target) = top.targets.first() {
@@ -376,12 +450,9 @@ impl Judge {
                                 state.stack.retain(|spell| spell.id != *target_id);
 
                                 if state.stack.len() < original_len {
-                                    return Ok(format!(
-                                        "{} resolved. Countered {}.",
-                                        top.card.name, countered_name
-                                    ));
+                                    effect_msgs.push(format!("Countered {}.", countered_name));
                                 } else {
-                                    return Ok(format!("{} resolved, but its target was no longer on the stack (Fizzled).", top.card.name));
+                                    effect_msgs.push(format!("Its target was no longer on the stack (Fizzled)."));
                                 }
                             }
                         }
@@ -393,9 +464,9 @@ impl Judge {
             state.graveyard.push(top.card.clone());
         }
 
-        // CR 117.5: Enforce SBAs immediately after ANY spell resolves (Permanent or Spell)
-        let sba_msgs = self.enforce_sbas(state);
-        effect_msgs.extend(sba_msgs);
+        self.enforce_sbas_and_triggers(state);
+        state.priority_player = state.active_player.clone();
+        state.consecutive_passes = 0;
 
         Ok(format!(
             "{} resolved. {}",
@@ -540,7 +611,7 @@ impl Judge {
     }
 
     /// Actively sweeps the board and removes permanents that violate state (CR 704)
-    pub fn resolve_combat_damage(state: &mut GameState) -> Result<String, String> {
+    pub fn resolve_combat_damage(&self, state: &mut GameState) -> Result<String, String> {
         let mut effect_msgs = Vec::new();
         
         // Quick copy of combatants to avoid borrow checker issues when mutating damage
@@ -618,6 +689,10 @@ impl Judge {
         state.attackers.clear();
         state.blockers.clear();
         
+        self.enforce_sbas_and_triggers(state);
+        state.priority_player = state.active_player.clone();
+        state.consecutive_passes = 0;
+
         if effect_msgs.is_empty() {
             Ok("No combat damage was dealt.".to_string())
         } else {
@@ -722,8 +797,11 @@ impl Judge {
         let msg = format!("Advanced to {:?} {:?}", next_phase, next_step);
         state.phase = next_phase;
         state.step = Some(next_step);
-        state.priority_player = state.active_player.clone(); // AP gets priority first
         state.mana_pool.clear(); // Mana empties as steps/phases end
+        
+        self.enforce_sbas_and_triggers(state);
+        state.priority_player = state.active_player.clone(); // AP gets priority first
+        state.consecutive_passes = 0;
         
         Ok(msg)
     }
@@ -739,9 +817,7 @@ impl Judge {
 
             if !state.stack.is_empty() {
                 // CR 117.4: If all players pass, resolve the top spell on the stack
-                let res = self.resolve_top(state);
-                state.priority_player = state.active_player.clone(); // AP gets priority after resolution
-                return res;
+                return self.resolve_top(state);
             } else {
                 // CR 117.4: If the stack is empty and all players pass, advance the phase
                 return self.advance_step(state);
@@ -756,5 +832,87 @@ impl Judge {
         }
 
         Ok(format!("Priority passed to {}.", state.priority_player))
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{GameState, Permanent, Phase, Effect, Ability, TriggerCondition, CardType};
+    use crate::events::GameEvent;
+
+    #[test]
+    fn test_etb_trigger_lifecycle() {
+        let mut state = GameState {
+            active_player: "Player".to_string(),
+            priority_player: "Player".to_string(),
+            turn_number: 1,
+            phase: Phase::PreCombatMain,
+            step: None,
+            stack: vec![],
+            battlefield: vec![],
+            graveyard: vec![],
+            exile: vec![],
+            hand: std::collections::HashMap::new(),
+            life_totals: std::collections::HashMap::new(),
+            mana_pool: std::collections::HashMap::new(),
+            continuous_effects: vec![],
+            pending_action: None,
+            attackers: vec![],
+            blockers: std::collections::HashMap::new(),
+            lands_played: 0,
+            consecutive_passes: 0,
+            rules_config: crate::models::RulesConfig::default(),
+            pending_triggers: vec![],
+        };
+
+        // Setup: Add a permanent with an ETB ability
+        let perm = Permanent {
+            id: "test-perm-1".to_string(),
+            name: "Elvish Visionary".to_string(),
+            oracle_text: "When Elvish Visionary enters the battlefield, draw a card.".to_string(),
+            mana_value: 2,
+            types: vec![CardType::Creature],
+            colors: vec![],
+            is_legendary: false,
+            controller: "Player".to_string(),
+            is_tapped: false,
+            damage_marked: 0,
+            power: 1,
+            toughness: 1,
+            base_power: 1,
+            base_toughness: 1,
+            counters: std::collections::HashMap::new(),
+            abilities: vec![
+                Ability::Triggered {
+                    condition: TriggerCondition::EntersBattlefield,
+                    effect: Effect::DrawCards { amount: 1 },
+                }
+            ],
+        };
+        state.battlefield.push(perm);
+
+        // Action 1: Simulate the ZoneChange event
+        state.emit_event(GameEvent::ZoneChange {
+            object_id: "test-perm-1".to_string(),
+            from_zone: "Stack".to_string(),
+            to_zone: "Battlefield".to_string(),
+        });
+
+        // Assert 1
+        assert_eq!(state.pending_triggers.len(), 1);
+
+        // Action 2: Run the engine SBA/Trigger loop
+        let judge = Judge::default_engine();
+        judge.enforce_sbas_and_triggers(&mut state);
+
+        // Assert 2
+        assert_eq!(state.pending_triggers.len(), 0);
+        assert_eq!(state.stack.len(), 1);
+        
+        let stack_top = &state.stack[0];
+        assert_eq!(stack_top.controller, "Player");
+        assert_eq!(stack_top.source_id, Some("test-perm-1".to_string()));
     }
 }

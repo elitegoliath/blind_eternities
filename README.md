@@ -53,6 +53,29 @@ Python handles the semantic reasoning and LLM orchestration, while a compiled Ru
    ```bash
    task compile
    ```
+### Testing the NLP Pipeline Locally
+
+To test the natural language processing (NLP) to strict action translation end-to-end, you need to run the application via Docker Compose to ensure the Python agent can reach the Ollama LLM service over the isolated container network.
+
+1. Start the Docker Compose environment and build the containers:
+   ```bash
+   docker-compose up --build -d
+   ```
+2. Attach a terminal to the running application container:
+   ```bash
+   docker exec -it blind-eternities-app /bin/bash
+   ```
+3. Inside the container, activate the virtual environment:
+   ```bash
+   source .venv/bin/activate
+   ```
+4. Run the NLP test script:
+   ```bash
+   python3 scripts/test_nlp.py
+   ```
+This flow will load the model, parse a natural language command (e.g. *"I cast Lightning Bolt targeting Tarmogoyf"*), classify the intent, extract entities, and translate it into a strict Pydantic `CastSpellAction` JSON payload ready for the Rust core.
+
+
 3. **Verify Installation**: Test that the FFI bridge is working correctly.
    ```bash
    python -c "import mtg_logic_core; print(f'Bridge Operational: {mtg_logic_core.__name__}')"
