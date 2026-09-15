@@ -25,7 +25,7 @@ use tokio::runtime::Runtime;
 mod models;
 mod rules;
 
-use models::{GameState, Ruling};
+use models::{GameState, Ruling, EngineResponse};
 use rules::Judge;
 
 // --- SINGLETONS ---
@@ -190,34 +190,44 @@ fn apply_action(json_payload: String) -> PyResult<String> {
     let mut state: GameState = match serde_json::from_str(&json_payload) {
         Ok(s) => s,
         Err(e) => {
-            return Ok(
-                json!({ "status": "error", "message": format!("JSON Error: {}", e) }).to_string(),
-            )
+            let resp = EngineResponse {
+                success: false,
+                state: None,
+                message: None,
+                error: Some(format!("JSON Parse Error: {}", e)),
+                logs: vec![],
+            };
+            return Ok(serde_json::to_string(&resp).unwrap());
         }
     };
 
     // 2. Apply Action (Mutates State)
     let judge = Judge::default_engine();
-    match judge.apply_action(&mut state) {
-        Ok(_) => {
+    let resp = match judge.apply_action(&mut state) {
+        Ok(msg) => {
             state.run_sba_loop();
             // 3. Serialize New State
-            // We return the entire modified state wrapper
-            Ok(json!({
-                "status": "success",
-                "new_state": state
-            })
-            .to_string())
+            EngineResponse {
+                success: true,
+                state: Some(state),
+                message: Some(msg),
+                error: None,
+                logs: vec![],
+            }
         }
         Err(reason) => {
             // Action Failed (Illegal)
-            Ok(json!({
-                "status": "illegal",
-                "reason": reason
-            })
-            .to_string())
+            EngineResponse {
+                success: false,
+                state: None,
+                message: None,
+                error: Some(reason),
+                logs: vec![],
+            }
         }
-    }
+    };
+
+    Ok(serde_json::to_string(&resp).unwrap())
 }
 
 #[pyfunction]

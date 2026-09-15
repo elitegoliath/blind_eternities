@@ -51,16 +51,27 @@ pub enum CardType {
 // Replaces "String" phases with strict logical steps
 #[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
 pub enum Phase {
+    Beginning,
+    PreCombatMain,
+    Combat,
+    PostCombatMain,
+    Ending,
+    #[serde(untagged)]
+    Custom(serde_json::Value),
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Clone)]
+pub enum Step {
     Untap,
     Upkeep,
     Draw,
-    #[serde(rename = "Main Phase 1")]
-    Main1,
-    #[serde(rename = "Combat")]
-    Combat,
-    #[serde(rename = "Main Phase 2")]
-    Main2,
+    BeginCombat,
+    DeclareAttackers,
+    DeclareBlockers,
+    CombatDamage,
+    EndCombat,
     End,
+    Cleanup,
     #[serde(untagged)]
     Custom(serde_json::Value),
 }
@@ -93,6 +104,7 @@ pub enum GameAction {
     DeclareBlockers {
         blockers: HashMap<String, Vec<String>>,
     },
+    PassPriority,
     #[serde(untagged)]
     Custom(serde_json::Value),
 }
@@ -384,41 +396,66 @@ pub enum ContinuousEffect {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GameState {
     pub active_player: String,  // "Player" or "Opponent"
-    pub is_active_player: bool, // Helper bool: Is it actually MY turn?
     
-    #[serde(default = "default_life_totals")]
-    pub life_totals: HashMap<String, i32>,
-    
+    #[serde(default = "default_player")]
+    pub priority_player: String,
+
+    #[serde(default = "default_turn")]
+    pub turn_number: u32,
+
     pub phase: Phase,
-    pub battlefield: Vec<Permanent>,
+    pub step: Option<Step>,
+
     pub stack: Vec<StackObject>,
-    
-    // Missing Mechanics Additions
+    pub battlefield: Vec<Permanent>,
+
     #[serde(default)]
     pub graveyard: Vec<Card>,
+    
     #[serde(default)]
     pub exile: Vec<Card>,
-    #[serde(default)]
-    pub attackers: Vec<String>, // IDs of attacking permanents
-    #[serde(default)]
-    pub blockers: HashMap<String, Vec<String>>, // Attacker ID -> Blockers
-
-    pub lands_played: u8, // Crucial for Land Logic
 
     #[serde(default)]
-    pub mana_pool: ManaPool, // The floating mana available to pay costs
-    pub pending_action: Option<GameAction>, // The "Request": What is the user trying to do?
+    pub hand: HashMap<String, Vec<Card>>,
 
-    #[serde(default)] // Fallback to defaults if Python omits it
-    pub rules_config: RulesConfig,
-    pub consecutive_passes: u8,
+    #[serde(default = "default_life_totals")]
+    pub life_totals: HashMap<String, i32>,
+
+    #[serde(default)]
+    pub mana_pool: HashMap<String, ManaPool>, // player_id -> mana pool
 
     #[serde(default)]
     pub continuous_effects: Vec<ContinuousEffect>,
+    
+    pub pending_action: Option<GameAction>,
+
+    // Internal engine state variables (skipped by Python if missing)
+    #[serde(default)]
+    pub attackers: Vec<String>,
+    #[serde(default)]
+    pub blockers: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub lands_played: u8,
+    #[serde(default)]
+    pub consecutive_passes: u8,
+    #[serde(default)]
+    pub rules_config: RulesConfig,
 }
+
+fn default_player() -> String { "Player".to_string() }
+fn default_turn() -> u32 { 1 }
 
 impl GameState {
     /// Sweeps the board for State-Based Actions.
+    pub fn get_mana_pool(&self, player: &str) -> ManaPool {
+        self.mana_pool.get(player).cloned().unwrap_or_default()
+    }
+
+    pub fn get_mana_pool_mut(&mut self, player: &str) -> &mut ManaPool {
+        self.mana_pool.entry(player.to_string()).or_default()
+    }
+
+
     /// Returns true if any actions were taken (meaning we need to loop and check again).
     pub fn check_state_based_actions(&mut self) -> bool {
         let original_count = self.battlefield.len();
@@ -503,4 +540,13 @@ impl GameState {
             }
         }
     }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EngineResponse {
+    pub success: bool,
+    pub state: Option<GameState>,
+    pub message: Option<String>,
+    pub error: Option<String>,
+    pub logs: Vec<String>,
 }

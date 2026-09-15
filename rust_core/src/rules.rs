@@ -5,7 +5,7 @@
 // They do not talk to a database or the internet; they just compute "Magic Physics."
 
 use crate::models::{
-    Card, CardType, Effect, GameAction, GameState, ManaPool, Permanent, Phase, Ruling, Target,
+    Card, CardType, Effect, GameAction, GameState, ManaPool, Permanent, Phase, Step, Ruling, Target,
 };
 
 pub trait RuleValidator: Send + Sync {
@@ -48,6 +48,7 @@ impl RuleValidator for DefaultActionValidator {
             }
             GameAction::DeclareAttackers { attackers: _ } => {}
             GameAction::DeclareBlockers { blockers: _ } => {}
+            GameAction::PassPriority => {}
             GameAction::Custom(_) => {}
         }
         rulings
@@ -103,7 +104,7 @@ impl Judge {
 
     /// Validation + Execution
     /// Returns Ok(NewState) or Err(Reason)
-    pub fn apply_action(&self, state: &mut GameState) -> Result<(), String> {
+    pub fn apply_action(&self, state: &mut GameState) -> Result<String, String> {
         // 1. Verify Legality First
         let rulings = self.assess_state(state);
         for r in rulings {
@@ -137,7 +138,8 @@ impl Judge {
                             .map_err(|e| e)?;
 
                     // Pay Mana (Mutates Pool)
-                    if !state.mana_pool.pay(&cost_pool, generic) {
+                    let active_player = state.active_player.clone();
+                    if !state.get_mana_pool_mut(&active_player).pay(&cost_pool, generic) {
                         return Err(
                             "CRITICAL: Mana validation passed but payment failed.".to_string()
                         );
@@ -193,6 +195,9 @@ impl Judge {
                 GameAction::DeclareBlockers { blockers } => {
                     state.blockers = blockers.clone();
                 }
+                GameAction::PassPriority => {
+                    return self.pass_priority(state);
+                }
                 GameAction::Custom(_) => {}
             }
         }
@@ -200,7 +205,7 @@ impl Judge {
 
         // 3. Cleanup
         state.pending_action = None;
-        Ok(())
+        Ok("Action successfully applied.".to_string())
     }
 
     /// Helper: Does a player have Hexproof or Shroud?
@@ -404,7 +409,7 @@ impl Judge {
         if !card.type_line.contains(&CardType::Land) {
             return Ruling::Illegal("Not a Land".into());
         }
-        if !state.is_active_player {
+        if state.priority_player != state.active_player {
             return Ruling::Illegal("Not your turn".into());
         }
         if !state.stack.is_empty() {
@@ -420,7 +425,7 @@ impl Judge {
         }
 
         match state.phase {
-            Phase::Main1 | Phase::Main2 => Ruling::Legal,
+            Phase::PreCombatMain | Phase::PostCombatMain => Ruling::Legal,
             _ => Ruling::Illegal("Wrong Phase".into()),
         }
     }
@@ -428,18 +433,19 @@ impl Judge {
     /// Internal Logic: Casting a Spell (Timing Rules)
     fn check_cast_timing(state: &GameState, card: &Card) -> Ruling {
         let is_instant = card.type_line.contains(&CardType::Instant);
+        // Note: checking flash would go here too
         if is_instant {
             return Ruling::Legal;
         }
         // Sorcery Speed Checks
-        if !state.is_active_player {
+        if state.priority_player != state.active_player {
             return Ruling::Illegal("Not your turn".into());
         }
         if !state.stack.is_empty() {
             return Ruling::Illegal("Stack not empty".into());
         }
         match state.phase {
-            Phase::Main1 | Phase::Main2 => Ruling::Legal,
+            Phase::PreCombatMain | Phase::PostCombatMain => Ruling::Legal,
             _ => Ruling::Illegal("Wrong Phase".into()),
         }
     }
@@ -453,7 +459,7 @@ impl Judge {
         };
 
         // Simulate Payment
-        let mut temp_pool = state.mana_pool.clone();
+        let mut temp_pool = state.get_mana_pool(&state.active_player);
         if temp_pool.pay(&required_pool, required_generic) {
             Ruling::Legal
         } else {
@@ -675,6 +681,54 @@ impl Judge {
     }
 
     // This function manages the priority sequence
+    pub fn advance_step(&self, state: &mut GameState) -> Result<String, String> {
+        let (next_phase, next_step) = match (&state.phase, &state.step) {
+            (Phase::Beginning, Some(Step::Untap)) => (Phase::Beginning, Step::Upkeep),
+            (Phase::Beginning, Some(Step::Upkeep)) => (Phase::Beginning, Step::Draw),
+            (Phase::Beginning, Some(Step::Draw)) => (Phase::PreCombatMain, Step::BeginCombat), // Actually it goes to Main 1, but we don't have a Main 1 step, we just have Phase::PreCombatMain. Let's use None for main phases.
+            (Phase::Beginning, _) => (Phase::PreCombatMain, Step::BeginCombat),
+            
+            (Phase::PreCombatMain, _) => (Phase::Combat, Step::BeginCombat),
+            
+            (Phase::Combat, Some(Step::BeginCombat)) => (Phase::Combat, Step::DeclareAttackers),
+            (Phase::Combat, Some(Step::DeclareAttackers)) => (Phase::Combat, Step::DeclareBlockers),
+            (Phase::Combat, Some(Step::DeclareBlockers)) => (Phase::Combat, Step::CombatDamage),
+            (Phase::Combat, Some(Step::CombatDamage)) => (Phase::Combat, Step::EndCombat),
+            (Phase::Combat, Some(Step::EndCombat)) => (Phase::PostCombatMain, Step::End), // dummy step
+            (Phase::Combat, _) => (Phase::PostCombatMain, Step::End),
+            
+            (Phase::PostCombatMain, _) => (Phase::Ending, Step::End),
+            
+            (Phase::Ending, Some(Step::End)) => (Phase::Ending, Step::Cleanup),
+            (Phase::Ending, Some(Step::Cleanup)) => {
+                // Next turn
+                state.turn_number += 1;
+                // We'll flip active player between "Player" and "Opponent" for a generic 2-player game
+                if state.active_player == "Player" {
+                    state.active_player = "Opponent".to_string();
+                } else {
+                    state.active_player = "Player".to_string();
+                }
+                (Phase::Beginning, Step::Untap)
+            },
+            (Phase::Ending, _) => {
+                // Fallback
+                (Phase::Beginning, Step::Untap)
+            },
+            
+            (Phase::Custom(_), _) => (Phase::Beginning, Step::Untap),
+        };
+        
+        let msg = format!("Advanced to {:?} {:?}", next_phase, next_step);
+        state.phase = next_phase;
+        state.step = Some(next_step);
+        state.priority_player = state.active_player.clone(); // AP gets priority first
+        state.mana_pool.clear(); // Mana empties as steps/phases end
+        
+        Ok(msg)
+    }
+
+
     pub fn pass_priority(&self, state: &mut GameState) -> Result<String, String> {
         // Increment the counter every time a player passes
         state.consecutive_passes += 1;
@@ -685,14 +739,22 @@ impl Judge {
 
             if !state.stack.is_empty() {
                 // CR 117.4: If all players pass, resolve the top spell on the stack
-                return self.resolve_top(state);
+                let res = self.resolve_top(state);
+                state.priority_player = state.active_player.clone(); // AP gets priority after resolution
+                return res;
             } else {
                 // CR 117.4: If the stack is empty and all players pass, advance the phase
-                // (Phase transition logic will be built out later)
-                return Ok("Stack is empty. Proceeding to next phase/step.".to_string());
+                return self.advance_step(state);
             }
         }
 
-        Ok("Priority passed to the next player.".to_string())
+        // Pass priority to the other player (Assume 2 players)
+        if state.priority_player == "Player" {
+            state.priority_player = "Opponent".to_string();
+        } else {
+            state.priority_player = "Player".to_string();
+        }
+
+        Ok(format!("Priority passed to {}.", state.priority_player))
     }
 }

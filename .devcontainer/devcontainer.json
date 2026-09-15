@@ -56,7 +56,7 @@
         },
 
         "python.terminal.activateEnvInCurrentTerminal": true,
-        "python.defaultInterpreterPath": ".venv/bin/python"
+        "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
       },
       "extensions": [
         "saoudrizwan.claude-dev",
