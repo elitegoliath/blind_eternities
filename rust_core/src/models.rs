@@ -12,14 +12,19 @@ use std::collections::HashMap;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum TriggerCondition {
     EntersBattlefield,
+    #[serde(untagged)]
+    Custom(serde_json::Value),
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(tag = "type")]
 pub enum Ability {
     Triggered {
         condition: TriggerCondition,
         effect: Effect,
     },
+    #[serde(untagged)]
+    Custom(serde_json::Value),
 }
 
 // Define the Effect Enum
