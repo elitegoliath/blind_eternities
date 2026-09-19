@@ -24,7 +24,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          
+
+      # Injects protoc into the host runner for macOS and Windows
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+    
       - name: Build wheels using Maturin
         uses: PyO3/maturin-action@v1
         with:
