@@ -1,0 +1,43 @@
+{
+  "active_player": "player_1",
+  "priority_player": "Player",
+  "turn_number": 1,
+  "phase": "Main Phase 1",
+  "step": null,
+  "stack": [],
+  "battlefield": [],
+  "graveyard": [],
+  "exile": [],
+  "hand": {
+    "player_1": [],
+    "player_2": [
+      {
+        "name": "Hidden Card",
+        "type_line": [],
+        "mana_cost": "",
+        "oracle_text": "",
+        "effects": []
+      }
+    ]
+  },
+  "life_totals": {
+    "player_1": 20,
+    "player_2": 20
+  },
+  "mana_pool": {},
+  "continuous_effects": [],
+  "pending_triggers": [],
+  "pending_action": {
+    "type": "PassPriority"
+  },
+  "attackers": [],
+  "blockers": {},
+  "lands_played": 0,
+  "consecutive_passes": 1,
+  "rules_config": {
+    "legend_rule_enabled": true,
+    "legend_max_allowed": 1,
+    "legend_scope": "controller",
+    "max_lands_per_turn": 1
+  }
+}

@@ -3,8 +3,10 @@ import json
 from pathlib import Path
 from .interfaces import StateStoreBackend
 
+
 class LocalJSONStateStore(StateStoreBackend):
     """Default local JSON-backed state store."""
+
     def __init__(self, base_dir: str = "."):
         self.base_dir = Path(base_dir)
         self.base_dir.mkdir(parents=True, exist_ok=True)
@@ -20,7 +22,7 @@ class LocalJSONStateStore(StateStoreBackend):
                     return json.load(f)
             except json.JSONDecodeError:
                 pass
-                
+
         # Default starting state
         return {
             "active_player": "Player",
@@ -29,8 +31,8 @@ class LocalJSONStateStore(StateStoreBackend):
             "battlefield": [],
             "stack": [],
             "lands_played": 0,
-            "mana_pool": {"w": 0, "u": 0, "b": 0, "r": 0, "g": 0, "c": 0},
-            "consecutive_passes": 0
+            "mana_pool": {},
+            "consecutive_passes": 0,
         }
 
     def save_state(self, session_id: str, state: dict) -> None:

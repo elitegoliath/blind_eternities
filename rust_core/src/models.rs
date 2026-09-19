@@ -14,7 +14,7 @@ pub enum TriggerCondition {
     EntersBattlefield,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub enum Ability {
     Triggered {
         condition: TriggerCondition,
@@ -25,10 +25,15 @@ pub enum Ability {
 // Define the Effect Enum
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
+#[derive(PartialEq)]
 pub enum Effect {
-    DealDamage { amount: u32 },
+    DealDamage {
+        amount: u32,
+    },
     Destroy, // No extra fields needed, it just targets
-    DrawCards { amount: u32 },
+    DrawCards {
+        amount: u32,
+    },
     Counter,
     #[serde(untagged)]
     Custom(serde_json::Value),
@@ -92,8 +97,8 @@ pub enum Step {
 #[derive(Debug, Serialize, Deserialize, PartialEq, Clone)]
 pub enum Ruling {
     Legal,
-    Illegal(String),          // The reason why it's illegal
-    StateBasedAction(String), // e.g. "Legend Rule"
+    Illegal(crate::errors::EngineError), // The reason why it's illegal
+    StateBasedAction(String),            // e.g. "Legend Rule"
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -103,6 +108,8 @@ pub enum GameAction {
         card: Card,
         #[serde(default)]
         targets: Vec<Target>,
+        #[serde(default)]
+        targeting_requirements: Vec<TargetRequirement>,
     },
     PlayLand(Card),
     ActivateAbility {
@@ -110,6 +117,8 @@ pub enum GameAction {
         ability_index: u32,
         #[serde(default)]
         targets: Vec<Target>,
+        #[serde(default)]
+        targeting_requirements: Vec<TargetRequirement>,
     },
     DeclareAttackers {
         attackers: Vec<String>,
@@ -118,6 +127,20 @@ pub enum GameAction {
         blockers: HashMap<String, Vec<String>>,
     },
     PassPriority,
+    #[serde(untagged)]
+    Custom(serde_json::Value),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(tag = "type")]
+pub enum TargetRequirement {
+    Any,
+    Permanent {
+        #[serde(default)]
+        types: Vec<CardType>,
+    },
+    Spell,
+    Player,
     #[serde(untagged)]
     Custom(serde_json::Value),
 }
@@ -142,6 +165,8 @@ pub struct StackObject {
     pub controller: String,
     #[serde(default)]
     pub targets: Vec<Target>, // The things the spell is pointing at
+    #[serde(default)]
+    pub targeting_requirements: Vec<TargetRequirement>,
     #[serde(default)]
     pub source_id: Option<String>, // If it's an ability, points to the permanent
 }
@@ -278,10 +303,6 @@ pub struct Permanent {
     pub oracle_text: String,
     #[serde(default)]
     pub mana_value: u32,
-    #[serde(default, alias = "type_line")]
-    pub types: Vec<CardType>,
-    #[serde(default)]
-    pub colors: Vec<Color>,
     #[serde(default)]
     pub is_legendary: bool,
 
@@ -294,19 +315,13 @@ pub struct Permanent {
     pub damage_marked: u32,
 
     #[serde(default)]
-    pub power: i32,
+    pub counters: HashMap<String, u32>,
+
     #[serde(default)]
-    pub toughness: i32,
-    
-    // Missing additions
+    pub base_characteristics: Characteristics,
+
     #[serde(default)]
-    pub base_power: i32,
-    #[serde(default)]
-    pub base_toughness: i32,
-    #[serde(default)]
-    pub counters: std::collections::HashMap<String, u32>,
-    #[serde(default)]
-    pub abilities: Vec<Ability>,
+    pub current_characteristics: Characteristics,
 }
 
 fn generate_fallback_id() -> String {
@@ -327,23 +342,26 @@ fn zone_version_rand() -> u16 {
 impl Permanent {
     // Helper to turn a Card into a Permanent
     pub fn from_card(card: &Card, controller: String, id_suffix: usize) -> Self {
-        Permanent {
-            id: format!("{}-{}", card.name, id_suffix), // Simple ID generation
-            name: card.name.clone(),
-            oracle_text: "".to_string(), // We don't have text on Card struct yet
-            mana_value: 0,               // Need to calculate from mana_cost parsing (skip for now)
+        let chars = Characteristics {
             types: card.type_line.clone(),
-            colors: vec![],      // Need to parse colors from cost (skip for now)
-            is_legendary: false, // Need this info on Card (skip for now)
+            colors: vec![],
+            abilities: vec![],
+            power: 0,
+            toughness: 0,
+        };
+
+        Permanent {
+            id: format!("{}-{}", card.name, id_suffix),
+            name: card.name.clone(),
+            oracle_text: "".to_string(),
+            mana_value: 0,
+            is_legendary: false,
             controller,
             is_tapped: false,
             damage_marked: 0,
-            power: 0,
-            toughness: 0,
-            base_power: 0,
-            base_toughness: 0,
             counters: HashMap::new(),
-            abilities: Vec::new(),
+            base_characteristics: chars.clone(),
+            current_characteristics: chars,
         }
     }
 }
@@ -393,26 +411,60 @@ impl Default for RulesConfig {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Layer {
+    OneCopiableValues = 10,
+    TwoControlChanging = 20,
+    ThreeTextChanging = 30,
+    FourTypeChanging = 40,
+    FiveColorChanging = 50,
+    SixAbilityAddingRemoving = 60,
+    SevenAPowerToughnessCDA = 70,
+    SevenBPowerToughnessSet = 71,
+    SevenCPowerToughnessModify = 72,
+    SevenDPowerToughnessCounters = 73,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+#[serde(tag = "type")]
+pub enum Modifier {
+    AddSubtype { types: Vec<CardType> },
+    SetPowerToughness { power: i32, toughness: i32 },
+    ModifyPowerToughness { power: i32, toughness: i32 },
+    AddAbility { ability: Ability },
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
+pub struct Characteristics {
+    #[serde(default)]
+    pub types: Vec<CardType>,
+    #[serde(default)]
+    pub colors: Vec<Color>,
+    #[serde(default)]
+    pub abilities: Vec<Ability>,
+    #[serde(default)]
+    pub power: i32,
+    #[serde(default)]
+    pub toughness: i32,
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(tag = "type")]
-pub enum ContinuousEffect {
-    GlobalBuff {
-        card_types: Vec<CardType>,
-        power_mod: i32,
-        toughness_mod: i32,
-        controller: Option<String>,
-    },
-    // Add more as needed
+pub struct ContinuousEffect {
+    pub source_id: String,
+    pub timestamp: u64,
+    pub layer: Layer,
+    pub modifier: Modifier,
+    #[serde(default)]
+    pub targets: Vec<String>,
 }
 
 // The "State Container"
 // --- THE STATE CONTAINER ---
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct GameState {
-    pub active_player: String,  // "Player" or "Opponent"
-    
+    pub active_player: String, // "Player" or "Opponent"
+
     #[serde(default = "default_player")]
     pub priority_player: String,
 
@@ -427,7 +479,7 @@ pub struct GameState {
 
     #[serde(default)]
     pub graveyard: Vec<Card>,
-    
+
     #[serde(default)]
     pub exile: Vec<Card>,
 
@@ -445,7 +497,7 @@ pub struct GameState {
 
     #[serde(default)]
     pub pending_triggers: Vec<crate::triggers::PendingTrigger>,
-    
+
     pub pending_action: Option<GameAction>,
 
     // Internal engine state variables (skipped by Python if missing)
@@ -461,20 +513,41 @@ pub struct GameState {
     pub rules_config: RulesConfig,
 }
 
-fn default_player() -> String { "Player".to_string() }
-fn default_turn() -> u32 { 1 }
+fn default_player() -> String {
+    "Player".to_string()
+}
+fn default_turn() -> u32 {
+    1
+}
 
 impl GameState {
+    pub fn get_player_perspective(&self, player_id: &str) -> GameState {
+        let mut sanitized = self.clone();
+        for (pid, cards) in sanitized.hand.iter_mut() {
+            if pid != player_id {
+                for card in cards.iter_mut() {
+                    card.name = "Hidden Card".to_string();
+                    card.type_line = vec![];
+                    card.mana_cost = "".to_string();
+                    card.oracle_text = "".to_string();
+                    card.effects = vec![];
+                }
+            }
+        }
+        sanitized
+    }
     /// Sweeps the board for State-Based Actions.
 
     /// Emits a game event, triggering permanents to place effects into the pending_triggers queue
     pub fn emit_event(&mut self, event: crate::events::GameEvent) {
         let mut new_triggers = Vec::new();
         match &event {
-            crate::events::GameEvent::ZoneChange { object_id, to_zone, .. } => {
+            crate::events::GameEvent::ZoneChange {
+                object_id, to_zone, ..
+            } => {
                 if to_zone == "Battlefield" {
                     if let Some(perm) = self.battlefield.iter().find(|p| &p.id == object_id) {
-                        for ability in &perm.abilities {
+                        for ability in &perm.current_characteristics.abilities {
                             if let Ability::Triggered { condition, effect } = ability {
                                 if *condition == TriggerCondition::EntersBattlefield {
                                     new_triggers.push(crate::triggers::PendingTrigger {
@@ -502,32 +575,44 @@ impl GameState {
         self.mana_pool.entry(player.to_string()).or_default()
     }
 
-
     /// Returns true if any actions were taken (meaning we need to loop and check again).
     pub fn check_state_based_actions(&mut self) -> bool {
         let original_count = self.battlefield.len();
-        
+
         let mut to_graveyard = Vec::new();
 
         // `retain` keeps only the elements where the closure returns true.
         // If it returns false, the permanent is destroyed/put into the graveyard.
         self.battlefield.retain(|permanent| {
             // Since toughness is i32, we can safely check if it is 0 or less.
-            let zero_or_less_toughness = permanent.toughness <= 0 && permanent.types.contains(&CardType::Creature);
+            let zero_or_less_toughness = permanent.current_characteristics.toughness <= 0
+                && permanent
+                    .current_characteristics
+                    .types
+                    .contains(&CardType::Creature);
 
             // We need to cast damage_marked to i32 for the comparison.
-            let lethal_damage = (permanent.damage_marked as i32) >= permanent.toughness && permanent.types.contains(&CardType::Creature);
-            
+            let lethal_damage = (permanent.damage_marked as i32)
+                >= permanent.current_characteristics.toughness
+                && permanent
+                    .current_characteristics
+                    .types
+                    .contains(&CardType::Creature);
+
             // Planeswalker legality
-            let zero_loyalty = permanent.types.contains(&CardType::Planeswalker) && *permanent.counters.get("Loyalty").unwrap_or(&0) == 0;
+            let zero_loyalty = permanent
+                .current_characteristics
+                .types
+                .contains(&CardType::Planeswalker)
+                && *permanent.counters.get("Loyalty").unwrap_or(&0) == 0;
 
             if lethal_damage || zero_or_less_toughness || zero_loyalty {
                 // Return false to drop the permanent from the vector (send to graveyard)
-                
+
                 // Reconstruct a base card for the graveyard
                 to_graveyard.push(Card {
                     name: permanent.name.clone(),
-                    type_line: permanent.types.clone(),
+                    type_line: permanent.current_characteristics.types.clone(),
                     mana_cost: "".to_string(), // Incomplete reconstruction for graveyard right now, but functional
                     oracle_text: permanent.oracle_text.clone(),
                     effects: vec![],
@@ -537,7 +622,7 @@ impl GameState {
 
             true // Keep the permanent alive
         });
-        
+
         self.graveyard.extend(to_graveyard);
 
         // If the length changed, an SBA occurred.
@@ -554,37 +639,52 @@ impl GameState {
 
     /// Layer 7 Calculation
     pub fn recalculate_stats(&mut self) {
-        // Reset to base stats + counters
+        // 1. Reset all permanents to base
         for perm in &mut self.battlefield {
-            perm.power = perm.base_power;
-            perm.toughness = perm.base_toughness;
-            
-            // Apply +1/+1 counters
-            let plus_counters = perm.counters.get("+1/+1").unwrap_or(&0);
-            perm.power += *plus_counters as i32;
-            perm.toughness += *plus_counters as i32;
-            
-            let minus_counters = perm.counters.get("-1/-1").unwrap_or(&0);
-            perm.power -= *minus_counters as i32;
-            perm.toughness -= *minus_counters as i32;
+            perm.current_characteristics = perm.base_characteristics.clone();
         }
 
-        // Apply global continuous effects
-        for effect in &self.continuous_effects {
-            match effect {
-                ContinuousEffect::GlobalBuff { card_types, power_mod, toughness_mod, controller } => {
-                    for perm in &mut self.battlefield {
-                        // Check if it matches types
-                        let matches_type = card_types.iter().all(|ct| perm.types.contains(ct));
-                        let matches_controller = controller.as_ref().map_or(true, |c| perm.controller == *c);
-                        
-                        if matches_type && matches_controller {
-                            perm.power += power_mod;
-                            perm.toughness += toughness_mod;
+        // 2. Gather active effects
+        let mut effects = self.continuous_effects.clone();
+        effects.sort_by(|a, b| match a.layer.cmp(&b.layer) {
+            std::cmp::Ordering::Equal => a.timestamp.cmp(&b.timestamp),
+            other => other,
+        });
+
+        // 3. Apply effects
+        for effect in effects {
+            for perm in &mut self.battlefield {
+                if effect.targets.is_empty() || effect.targets.contains(&perm.id) {
+                    match &effect.modifier {
+                        Modifier::AddSubtype { types } => {
+                            for ct in types {
+                                if !perm.current_characteristics.types.contains(ct) {
+                                    perm.current_characteristics.types.push(ct.clone());
+                                }
+                            }
+                        }
+                        Modifier::SetPowerToughness { power, toughness } => {
+                            perm.current_characteristics.power = *power;
+                            perm.current_characteristics.toughness = *toughness;
+                        }
+                        Modifier::ModifyPowerToughness { power, toughness } => {
+                            perm.current_characteristics.power += *power;
+                            perm.current_characteristics.toughness += *toughness;
+                        }
+                        Modifier::AddAbility { ability } => {
+                            perm.current_characteristics.abilities.push(ability.clone());
                         }
                     }
                 }
             }
+        }
+
+        // 4. Layer 7d: Counters
+        for perm in &mut self.battlefield {
+            let plus = *perm.counters.get("+1/+1").unwrap_or(&0) as i32;
+            let minus = *perm.counters.get("-1/-1").unwrap_or(&0) as i32;
+            perm.current_characteristics.power += plus - minus;
+            perm.current_characteristics.toughness += plus - minus;
         }
     }
 }
@@ -594,6 +694,6 @@ pub struct EngineResponse {
     pub success: bool,
     pub state: Option<GameState>,
     pub message: Option<String>,
-    pub error: Option<String>,
+    pub error: Option<crate::errors::EngineError>,
     pub logs: Vec<String>,
 }

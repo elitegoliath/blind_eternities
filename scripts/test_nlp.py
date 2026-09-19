@@ -11,7 +11,7 @@ from python_agent.pipelines import handle_simulation
 def test_nlp():
     prompt = "I want to cast Lightning Bolt targeting my opponent's Tarmogoyf"
     
-    print(f"\n--- Testing NLP Pipeline ---")
+    print("\n--- Testing NLP Pipeline ---")
     print(f"User Prompt: '{prompt}'")
     
     # 1. Router

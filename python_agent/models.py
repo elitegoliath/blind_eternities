@@ -1,6 +1,7 @@
 from typing import List, Dict, Optional, Any, Union, Literal
 from pydantic import BaseModel, Field
 
+
 class Card(BaseModel):
     name: str
     type_line: List[str]
@@ -8,9 +9,11 @@ class Card(BaseModel):
     oracle_text: str
     effects: List[Any] = []
 
+
 class Target(BaseModel):
     type: str
     id: Optional[str] = None
+
 
 class StackObject(BaseModel):
     id: str
@@ -18,6 +21,7 @@ class StackObject(BaseModel):
     controller: str
     targets: List[Target] = []
     source_id: Optional[str] = None
+
 
 class Permanent(BaseModel):
     id: str
@@ -34,52 +38,64 @@ class Permanent(BaseModel):
     counters: Dict[str, int] = {}
     oracle_text: str = ""
 
+
 class CastSpellPayload(BaseModel):
     card: Card
     targets: List[Target] = Field(default_factory=list)
+
 
 class CastSpellAction(BaseModel):
     type: Literal["CastSpell"] = "CastSpell"
     payload: CastSpellPayload
 
+
 class PlayLandAction(BaseModel):
     type: Literal["PlayLand"] = "PlayLand"
     payload: Card
+
 
 class ActivateAbilityPayload(BaseModel):
     source_id: str
     ability_index: int
     targets: List[Target] = Field(default_factory=list)
 
+
 class ActivateAbilityAction(BaseModel):
     type: Literal["ActivateAbility"] = "ActivateAbility"
     payload: ActivateAbilityPayload
 
+
 class DeclareAttackersPayload(BaseModel):
     attackers: List[str]
+
 
 class DeclareAttackersAction(BaseModel):
     type: Literal["DeclareAttackers"] = "DeclareAttackers"
     payload: DeclareAttackersPayload
 
+
 class DeclareBlockersPayload(BaseModel):
     blockers: Dict[str, List[str]]
+
 
 class DeclareBlockersAction(BaseModel):
     type: Literal["DeclareBlockers"] = "DeclareBlockers"
     payload: DeclareBlockersPayload
 
+
 class PassPriorityAction(BaseModel):
     type: Literal["PassPriority"] = "PassPriority"
 
+
 Action = Union[
-    CastSpellAction, 
-    PlayLandAction, 
-    ActivateAbilityAction, 
-    DeclareAttackersAction, 
+    CastSpellAction,
+    PlayLandAction,
+    ActivateAbilityAction,
+    DeclareAttackersAction,
     DeclareBlockersAction,
-    PassPriorityAction
+    PassPriorityAction,
 ]
+
 
 class GameState(BaseModel):
     active_player: str
@@ -96,6 +112,7 @@ class GameState(BaseModel):
     mana_pool: Dict[str, Dict[str, int]] = Field(default_factory=dict)
     continuous_effects: List[Any] = Field(default_factory=list)
     pending_action: Optional[Action] = None
+
 
 class EngineResponse(BaseModel):
     success: bool

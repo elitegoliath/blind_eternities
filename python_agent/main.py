@@ -9,7 +9,7 @@ def _wait_for_ollama():
     import os
     url = f"{os.getenv('LLM_BASE_URL', 'http://llm-engine:11434').replace('/v1', '')}/api/tags"
     target_model = os.getenv('LLM_MODEL_NAME', 'qwen2.5:7b')
-    for _ in range(60): # Wait up to 2 minutes (60 * 2s)
+    for _ in range(2): # Wait up to 2 minutes (60 * 2s)
         try:
             resp = requests.get(url)
             if resp.status_code == 200:
@@ -23,7 +23,6 @@ def _wait_for_ollama():
     print(">>> WARNING: Ollama model check timed out. Proceeding anyway...")
 
 
-from typing import TypedDict, Annotated, Sequence, AsyncGenerator
 
 from dotenv import load_dotenv
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage

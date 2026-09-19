@@ -22,12 +22,13 @@ use lancedb::connect;
 use lancedb::query::{ExecutableQuery, QueryBase};
 use tokio::runtime::Runtime;
 
-mod models;
+mod errors;
 mod events;
-mod triggers;
+mod models;
 mod rules;
+mod triggers;
 
-use models::{GameState, Ruling, EngineResponse};
+use models::{EngineResponse, GameState, Ruling};
 use rules::Judge;
 
 // --- SINGLETONS ---
@@ -188,47 +189,31 @@ fn search_cards(
 
 #[pyfunction]
 fn apply_action(json_payload: String) -> PyResult<String> {
-    // 1. Parse State
-    let mut state: GameState = match serde_json::from_str(&json_payload) {
-        Ok(s) => s,
-        Err(e) => {
-            let resp = EngineResponse {
-                success: false,
-                state: None,
-                message: None,
-                error: Some(format!("JSON Parse Error: {}", e)),
-                logs: vec![],
-            };
-            return Ok(serde_json::to_string(&resp).unwrap());
-        }
-    };
+    let result: Result<EngineResponse, crate::errors::EngineError> = (|| {
+        let mut state: GameState = serde_json::from_str(&json_payload).map_err(|e| {
+            crate::errors::EngineError::StateError(format!("JSON Parse Error: {}", e))
+        })?;
 
-    // 2. Apply Action (Mutates State)
-    let judge = Judge::default_engine();
-    let resp = match judge.apply_action(&mut state) {
-        Ok(msg) => {
-            // 3. Serialize New State
-            EngineResponse {
-                success: true,
-                state: Some(state),
-                message: Some(msg),
-                error: None,
-                logs: vec![],
-            }
-        }
-        Err(reason) => {
-            // Action Failed (Illegal)
-            EngineResponse {
-                success: false,
-                state: None,
-                message: None,
-                error: Some(reason),
-                logs: vec![],
-            }
-        }
-    };
+        let judge = Judge::default_engine();
+        let msg = judge.apply_action(&mut state)?;
 
-    Ok(serde_json::to_string(&resp).unwrap())
+        Ok(EngineResponse {
+            success: true,
+            state: Some(state),
+            message: Some(msg),
+            error: None,
+            logs: vec![],
+        })
+    })();
+
+    match result {
+        Ok(resp) => Ok(serde_json::to_string(&resp).unwrap()),
+        Err(e) => Ok(json!({
+            "status": "error",
+            "error": e
+        })
+        .to_string()),
+    }
 }
 
 #[pyfunction]
@@ -245,17 +230,15 @@ fn resolve_stack_top(json_payload: String) -> PyResult<String> {
 
     let judge = Judge::default_engine();
     match judge.resolve_top(&mut state) {
-        Ok(resolution_msg) => {
-            Ok(json!({
-                "status": "success",
-                "message": resolution_msg,
-                "new_state": state
-            })
-            .to_string())
-        }
+        Ok(resolution_msg) => Ok(json!({
+            "status": "success",
+            "message": resolution_msg,
+            "new_state": state
+        })
+        .to_string()),
         Err(e) => Ok(json!({
             "status": "error",
-            "message": e
+            "error": e
         })
         .to_string()),
     }
@@ -271,7 +254,7 @@ fn pass_priority_endpoint(state_json: String) -> PyResult<String> {
     let judge = Judge::default_engine();
     let message = match judge.pass_priority(&mut state) {
         Ok(msg) => msg,
-        Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
+        Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
     };
 
     // 3. Serialize and return the mutated state
@@ -292,7 +275,7 @@ fn resolve_combat_damage_endpoint(state_json: String) -> PyResult<String> {
     let judge = Judge::default_engine();
     let message = match judge.resolve_combat_damage(&mut state) {
         Ok(msg) => msg,
-        Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e)),
+        Err(e) => return Err(pyo3::exceptions::PyRuntimeError::new_err(e.to_string())),
     };
 
     let response = serde_json::json!({
@@ -304,6 +287,21 @@ fn resolve_combat_damage_endpoint(state_json: String) -> PyResult<String> {
     Ok(serde_json::to_string(&response).unwrap())
 }
 
+#[pyfunction]
+fn sanitize_state(json_payload: String, player_id: String) -> PyResult<String> {
+    let state: GameState = match serde_json::from_str(&json_payload) {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok(
+                json!({"status": "error", "message": format!("JSON Parse Error: {}", e)})
+                    .to_string(),
+            )
+        }
+    };
+    let sanitized = state.get_player_perspective(&player_id);
+    Ok(serde_json::to_string(&sanitized).unwrap())
+}
+
 #[pymodule]
 fn mtg_logic_core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(check_board_state, m)?)?;
@@ -312,5 +310,6 @@ fn mtg_logic_core(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(resolve_stack_top, m)?)?;
     m.add_function(wrap_pyfunction!(pass_priority_endpoint, m)?)?;
     m.add_function(wrap_pyfunction!(resolve_combat_damage_endpoint, m)?)?;
+    m.add_function(wrap_pyfunction!(sanitize_state, m)?)?;
     Ok(())
 }

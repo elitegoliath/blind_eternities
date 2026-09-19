@@ -19,10 +19,11 @@ from langchain_ollama import ChatOllama
 prompt_path = Path(__file__).parent / "system_prompt.md"
 SYSTEM_PROMPT = prompt_path.read_text(encoding="utf-8")
 
+
 @lru_cache(maxsize=1)
 def get_llm(temperature: float = 0.0) -> ChatOllama:
     """
-    Returns a configured LLM instance. 
+    Returns a configured LLM instance.
     Cached to prevent re-initialization overhead during high-throughput testing.
     """
 
@@ -34,20 +35,26 @@ def get_llm(temperature: float = 0.0) -> ChatOllama:
 
     return ChatOllama(
         model=os.getenv("LLM_MODEL_NAME", "qwen2.5:7b"),
-        base_url=local_base_url, 
-        temperature=temperature
+        base_url=local_base_url,
+        temperature=temperature,
     )
+
 
 def get_prompt_template() -> ChatPromptTemplate:
     """
     Constructs the chat history structure for the agent.
     """
-    return ChatPromptTemplate.from_messages([
-        ("system", SYSTEM_PROMPT),
-        MessagesPlaceholder(variable_name="chat_history"), # Memory injection point
-        ("human", "{input}"),
-        MessagesPlaceholder(variable_name="agent_scratchpad"), # Thinking space for ReAct
-    ])
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="chat_history"),  # Memory injection point
+            ("human", "{input}"),
+            MessagesPlaceholder(
+                variable_name="agent_scratchpad"
+            ),  # Thinking space for ReAct
+        ]
+    )
+
 
 # Why this design?
 # Temperature 0.0: Standard chatbots use 0.7 for creativity. An MTG Judge must use 0.0 because the rules are deterministic. We don't want "creative" interpretations of the stack.

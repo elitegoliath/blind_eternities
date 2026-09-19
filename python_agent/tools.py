@@ -456,7 +456,6 @@ def cast_spell(
     )
     state_store = config.get("configurable", {}).get("state_store") if config else None
     if not state_store:
-
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
 
@@ -491,8 +490,12 @@ def cast_spell(
         ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
         ruling = json.loads(ruling_raw)
 
-        if ruling.get("status") == "success":
-            new_state = ruling.get("new_state", state)
+        if ruling.get("status") == "error":
+            err = ruling.get("error", {})
+            return f"The MTG Rules Engine rejected the action. Error Type: {err.get('type')}. Details: {err.get('details')}. Please explain to the user exactly why their proposed action was illegal according to the rules."
+
+        if ruling.get("success") is True or ruling.get("status") == "success":
+            new_state = ruling.get("state", state)
             # CRITICAL: Taking an action breaks the chain of succession
             new_state["consecutive_passes"] = 0
             state_store.save_state(session_id, new_state)
@@ -507,7 +510,7 @@ def cast_spell(
             }
         return {
             "status": "illegal",
-            "reason": ruling.get("reason", "Unknown legality error."),
+            "reason": ruling.get("error", "Unknown legality error."),
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -528,7 +531,6 @@ def pass_priority(config: RunnableConfig = None) -> dict:
     )
     state_store = config.get("configurable", {}).get("state_store") if config else None
     if not state_store:
-
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
 
@@ -540,8 +542,12 @@ def pass_priority(config: RunnableConfig = None) -> dict:
         ruling_raw = mtg_logic_core.pass_priority_endpoint(json.dumps(state))
         ruling = json.loads(ruling_raw)
 
-        if ruling.get("status") == "success":
-            new_state = ruling.get("new_state", state)
+        if ruling.get("status") == "error":
+            err = ruling.get("error", {})
+            return f"The MTG Rules Engine rejected the action. Error Type: {err.get('type')}. Details: {err.get('details')}. Please explain to the user exactly why their proposed action was illegal according to the rules."
+
+        if ruling.get("success") is True or ruling.get("status") == "success":
+            new_state = ruling.get("state", state)
             state_store.save_state(session_id, new_state)
 
             return {
@@ -576,7 +582,6 @@ def spawn_permanent(
     )
     state_store = config.get("configurable", {}).get("state_store") if config else None
     if not state_store:
-
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
 
@@ -631,7 +636,6 @@ def add_mana(mana_string: str, config: RunnableConfig = None) -> dict:
     )
     state_store = config.get("configurable", {}).get("state_store") if config else None
     if not state_store:
-
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
 
@@ -704,7 +708,6 @@ def activate_ability(
     )
     state_store = config.get("configurable", {}).get("state_store") if config else None
     if not state_store:
-
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
 
@@ -725,8 +728,12 @@ def activate_ability(
         ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
         ruling = json.loads(ruling_raw)
 
-        if ruling.get("status") == "success":
-            new_state = ruling.get("new_state", state)
+        if ruling.get("status") == "error":
+            err = ruling.get("error", {})
+            return f"The MTG Rules Engine rejected the action. Error Type: {err.get('type')}. Details: {err.get('details')}. Please explain to the user exactly why their proposed action was illegal according to the rules."
+
+        if ruling.get("success") is True or ruling.get("status") == "success":
+            new_state = ruling.get("state", state)
             new_state["consecutive_passes"] = 0
             state_store.save_state(session_id, new_state)
 
@@ -738,7 +745,7 @@ def activate_ability(
             }
         return {
             "status": "illegal",
-            "reason": ruling.get("reason", "Unknown legality error."),
+            "reason": ruling.get("error", "Unknown legality error."),
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -764,7 +771,6 @@ def declare_attackers(
     )
     state_store = config.get("configurable", {}).get("state_store") if config else None
     if not state_store:
-
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
 
@@ -784,14 +790,18 @@ def declare_attackers(
         ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
         ruling = json.loads(ruling_raw)
 
-        if ruling.get("status") == "success":
-            new_state = ruling.get("new_state", state)
+        if ruling.get("status") == "error":
+            err = ruling.get("error", {})
+            return f"The MTG Rules Engine rejected the action. Error Type: {err.get('type')}. Details: {err.get('details')}. Please explain to the user exactly why their proposed action was illegal according to the rules."
+
+        if ruling.get("success") is True or ruling.get("status") == "success":
+            new_state = ruling.get("state", state)
             new_state["consecutive_passes"] = 0
             state_store.save_state(session_id, new_state)
             return {"status": "success", "message": "Attackers declared."}
         return {
             "status": "illegal",
-            "reason": ruling.get("reason", "Unknown legality error."),
+            "reason": ruling.get("error", "Unknown legality error."),
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -817,7 +827,6 @@ def declare_blockers(
     )
     state_store = config.get("configurable", {}).get("state_store") if config else None
     if not state_store:
-
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
 
@@ -837,14 +846,18 @@ def declare_blockers(
         ruling_raw = mtg_logic_core.apply_action(json.dumps(state))
         ruling = json.loads(ruling_raw)
 
-        if ruling.get("status") == "success":
-            new_state = ruling.get("new_state", state)
+        if ruling.get("status") == "error":
+            err = ruling.get("error", {})
+            return f"The MTG Rules Engine rejected the action. Error Type: {err.get('type')}. Details: {err.get('details')}. Please explain to the user exactly why their proposed action was illegal according to the rules."
+
+        if ruling.get("success") is True or ruling.get("status") == "success":
+            new_state = ruling.get("state", state)
             new_state["consecutive_passes"] = 0
             state_store.save_state(session_id, new_state)
             return {"status": "success", "message": "Blockers declared."}
         return {
             "status": "illegal",
-            "reason": ruling.get("reason", "Unknown legality error."),
+            "reason": ruling.get("error", "Unknown legality error."),
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -865,7 +878,6 @@ def resolve_combat_damage(config: RunnableConfig = None) -> dict:
     )
     state_store = config.get("configurable", {}).get("state_store") if config else None
     if not state_store:
-
         state_store = LocalJSONStateStore()
     state = state_store.load_state(session_id)
 
@@ -873,8 +885,12 @@ def resolve_combat_damage(config: RunnableConfig = None) -> dict:
         ruling_raw = mtg_logic_core.resolve_combat_damage_endpoint(json.dumps(state))
         ruling = json.loads(ruling_raw)
 
-        if ruling.get("status") == "success":
-            new_state = ruling.get("new_state", state)
+        if ruling.get("status") == "error":
+            err = ruling.get("error", {})
+            return f"The MTG Rules Engine rejected the action. Error Type: {err.get('type')}. Details: {err.get('details')}. Please explain to the user exactly why their proposed action was illegal according to the rules."
+
+        if ruling.get("success") is True or ruling.get("status") == "success":
+            new_state = ruling.get("state", state)
             state_store.save_state(session_id, new_state)
             return {
                 "status": "success",

@@ -1,117 +1,35 @@
-# Blind Eternities
+# Blind Eternities - Open Core
 
-**A Retrieval-Augmented Rules (RAG) Engine for Magic: The Gathering**
+Blind Eternities is an open-source, stateless, and headless MTG (Magic: The Gathering) Rules Engine and AI Judge Orchestrator. Designed to be completely client-agnostic, the core engine relies on a strict FFI boundary and structural abstractions to act as the ultimate source of truth for MTG game states, interactions, and priority.
 
-## Overview
+## 🏗️ Architecture
 
-Blind Eternities is an AI-driven, polyglot application that acts as a judge and rules assistant for Magic: The Gathering. It uses a hybrid **Python + Rust** architecture to combine the natural language reasoning capabilities of Large Language Models (LLMs) with the strict, deterministic execution of a compiled rules engine.
+The Open Core operates across a 4-tier pipeline:
 
-## Architecture
+1. **Rust (Rules Engine):** Compiled via PyO3, the Rust library (`mtg_logic_core`) contains the strict invariants for the MTG State Machine. It manages the LIFO stack, Layer calculation (CR 613), Target Validation (CR 114 / CR 608.2b), State-Based Actions (SBAs), and returns typed `EngineError` permutations upon illegal moves.
+2. **Pydantic/PyO3 (FFI Boundary):** Python and Rust communicate entirely via sanitized, stateless JSON payloads deserialized into strict Structs/Models, ensuring no memory leaks or proprietary front-end state is entangled with the core rules.
+3. **Python/LangGraph (AI Orchestration):** Using local LLMs (Qwen 2.5 via Ollama) and a LangGraph tool-calling loop, user natural language input is routed using NLP classification (`DEFINITION`, `INTERACTION`, `SIMULATION`). The AI determines the user's intent, interacts with an offline Vector/SQLite RAG pipeline (LanceDB + FastEmbed) for rule synthesis, and transforms moves into rigid JSON actions for the engine to execute.
+4. **FastAPI (WebSockets):** The application exposes persistent WebSocket endpoints that stream `PlayerPerspective` (hidden information sanitized) game states and chat messages directly to external clients (like a React Native frontend).
 
-Python handles the semantic reasoning and LLM orchestration, while a compiled Rust core enforces the strict game state rules and handles high-performance vector retrieval via LanceDB.
+## 🚀 Getting Started (Docker Compose)
 
-```mermaid
-    graph TD
-    %% Styling Definitions
-    classDef python fill:#3776ab,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef rust fill:#dea584,stroke:#fff,stroke-width:2px,color:#000;
-    classDef data fill:#444,stroke:#fff,stroke-width:2px,color:#fff;
-    classDef user fill:#fff,stroke:#333,stroke-width:1px,color:#000;
+The easiest way to boot the entire ecosystem (FastAPI Backend, SQLite Cache, LanceDB Vector Store, and the Local Ollama LLM) is using Docker Compose.
 
-    user([User / Developer]) -->|Natural Language Query| Agent
+Ensure you have Docker and Docker Compose installed.
 
-    subgraph "Python Land (The Orchestrator)"
-        Agent[Agent Runtime<br/><i>LangChain + Pydantic</i>]:::python
-        LLM[LLM Interface<br/><i>OpenAI / Anthropic / Ollama</i>]:::python
-        Agent <-->|Context & Reasoning| LLM
-    end
-
-    Agent <==>|FFI / PyO3 Bridge<br/><i>Zero-Copy Data Transfer</i>| Core
-
-    subgraph "Rust Land (The Judge)"
-        Core[Compiled Extension<br/><i>mtg_logic_core.so</i>]:::rust
-        Rules[Rules Engine<br/><i>State Machine & Layers</i>]:::rust
-        Ingest[Data Ingestion<br/><i>Streaming Parser</i>]:::rust
-
-        Core --> Rules
-        Ingest --> DB
-    end
-
-    subgraph "Persistence Layer"
-        DB[(LanceDB / JSON<br/><i>Vector Store & Rules</i>)]:::data
-        Rules <-->|High-Speed Lookup| DB
-    end
-
-    %% Legend / Connectors
-    Ingest -.->|Periodic Updates| Scryfall(Scryfall API):::user
-```
-
-## Setup & Installation
-
-1. **Environment Variables**: Create a `.env` file in the root directory (you can copy `.env.example`).
-2. **Compile the Rust Bridge**: The Rust engine must be compiled into a Python extension module.
-   ```bash
-   task compile
-   ```
-### Testing the NLP Pipeline Locally
-
-To test the natural language processing (NLP) to strict action translation end-to-end, you need to run the application via Docker Compose to ensure the Python agent can reach the Ollama LLM service over the isolated container network.
-
-1. Start the Docker Compose environment and build the containers:
-   ```bash
-   docker-compose up --build -d
-   ```
-2. Attach a terminal to the running application container:
-   ```bash
-   docker exec -it blind-eternities-app /bin/bash
-   ```
-3. Inside the container, activate the virtual environment:
-   ```bash
-   source .venv/bin/activate
-   ```
-4. Run the NLP test script:
-   ```bash
-   python3 scripts/test_nlp.py
-   ```
-This flow will load the model, parse a natural language command (e.g. *"I cast Lightning Bolt targeting Tarmogoyf"*), classify the intent, extract entities, and translate it into a strict Pydantic `CastSpellAction` JSON payload ready for the Rust core.
-
-
-3. **Verify Installation**: Test that the FFI bridge is working correctly.
-   ```bash
-   python -c "import mtg_logic_core; print(f'Bridge Operational: {mtg_logic_core.__name__}')"
-   ```
-
-## Usage Instructions
-
-This project includes Go-Task (`task`) to run standard operations easily.
-
-### Interactive AI Agent
-Run the command-line LLM interface (ensure your local Ollama or configured LLM provider is running):
 ```bash
-task agent
+# Boot the entire infrastructure
+docker-compose up --build
 ```
 
-*Example Prompt:*
-> "I have an Urza, Lord High Artificer on the battlefield. I cast a second Urza, Lord High Artificer. What happens?"
+The system will spin up:
+- The **FastAPI** web server (Port: `8000`)
+- The **Ollama** LLM container (Port: `11434`)
 
-### Streamlit UI (The Judge Interface)
-Run the web dashboard to visually inspect game states and manipulate the battlefield:
-```bash
-task ui
-```
+Wait until the Ollama container successfully pulls the `qwen2.5:7b` model and starts accepting requests. You can then connect a WebSocket client to `ws://localhost:8000/ws/{session_id}/{player_id}` to interact with the engine.
 
-### Testing
-Run both the Python FFI integration tests and the internal Rust core tests:
-```bash
-task test
-```
+## 🤝 Contribution Guidelines
 
-### Code Quality (Linting & Formatting)
-```bash
-task lint
-task fmt
-```
-
-## Disclaimer
-
-Unofficial Fan Content Policy: This project is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
+This repository represents the **Open-Source Core**. 
+- Never add proprietary monetization or cloud analytics directly to the `rust_core` or `python_agent` packages. 
+- Build via structural plugins, injecting proprietary dependencies via the DI (Dependency Injection) containers provided in the python abstractions.
