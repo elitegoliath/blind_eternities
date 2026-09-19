@@ -225,7 +225,14 @@ impl Judge {
                         state.active_player.clone(),
                         state.battlefield.len(),
                     );
+                    let perm_id = perm.id.clone();
                     state.battlefield.push(perm);
+
+                    state.emit_event(crate::events::GameEvent::ZoneChange {
+                        object_id: perm_id,
+                        from_zone: "Hand".to_string(),
+                        to_zone: "Battlefield".to_string(),
+                    });
                 }
                 GameAction::CastSpell {
                     card,
@@ -392,7 +399,15 @@ impl Judge {
         if is_permanent {
             let perm =
                 Permanent::from_card(&top.card, top.controller.clone(), state.battlefield.len());
+            let perm_id = perm.id.clone();
             state.battlefield.push(perm);
+
+            state.emit_event(crate::events::GameEvent::ZoneChange {
+                object_id: perm_id,
+                from_zone: "Stack".to_string(),
+                to_zone: "Battlefield".to_string(),
+            });
+
             effect_msgs.push(format!("{} entered the battlefield.", top.card.name));
         } else {
             // Instant or Sorcery
