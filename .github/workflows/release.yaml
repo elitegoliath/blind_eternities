@@ -25,11 +25,15 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Injects protoc into the host runner for macOS and Windows
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      # Install globally via Homebrew on macOS runners
+      - name: Install Protoc (macOS)
+        if: runner.os == 'macOS'
+        run: brew install protobuf
+
+      # Install globally via Chocolatey on Windows runners
+      - name: Install Protoc (Windows)
+        if: runner.os == 'Windows'
+        run: choco install protoc -y
     
       - name: Build wheels using Maturin
         uses: PyO3/maturin-action@v1
@@ -39,7 +43,10 @@ jobs:
           # manylinux ensures the Linux wheel works across most distributions
           manylinux: 2_28
           before-script-linux: |
-            dnf install -y openssl-devel
+            dnf install -y openssl-devel unzip
+            curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v25.3/protoc-25.3-linux-x86_64.zip
+            unzip protoc-25.3-linux-x86_64.zip -d /usr/local
+            chmod +x /usr/local/bin/protoc
 
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
