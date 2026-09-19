@@ -32,6 +32,8 @@ jobs:
           args: --release --out dist -i 3.11
           # manylinux ensures the Linux wheel works across most distributions
           manylinux: auto
+          before-script-linux: |
+            yum install -y openssl-devel
 
       - name: Upload wheel artifacts
         uses: actions/upload-artifact@v4
