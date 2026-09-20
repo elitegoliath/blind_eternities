@@ -23,6 +23,7 @@ docker-compose up --build
 ```
 
 The system will spin up:
+
 - The **FastAPI** web server (Port: `8000`)
 - The **Ollama** LLM container (Port: `11434`)
 
@@ -30,6 +31,11 @@ Wait until the Ollama container successfully pulls the `qwen2.5:7b` model and st
 
 ## 🤝 Contribution Guidelines
 
-This repository represents the **Open-Source Core**. 
+This repository represents the **Open-Source Core**.
+
 - Never add proprietary monetization or cloud analytics directly to the `rust_core` or `python_agent` packages. 
 - Build via structural plugins, injecting proprietary dependencies via the DI (Dependency Injection) containers provided in the python abstractions.
+
+## ⚖️ Legal Disclaimer
+
+Blind Eternities is unofficial Fan Content permitted under the Fan Content Policy. Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
